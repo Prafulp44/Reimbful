@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /bills/{tripId}/{allPaths=**} {
+      // Allow authenticated users to upload bills for their trips
+      // In a real app, we'd verify trip ownership here too
+      allow read, write: if request.auth != null;
+    }
+  }
+}

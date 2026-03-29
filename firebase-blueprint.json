@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile data including unique username.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "username", "createdAt"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "A travel trip containing multiple expenses.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "tripTitle": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "userId", "tripTitle", "startDate", "endDate", "totalAmount", "createdAt"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "An individual expense within a trip.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tripId": { "type": "string" },
+        "category": { "type": "string", "enum": ["Travel", "Food", "Hotel", "Other"] },
+        "vendorName": { "type": "string" },
+        "amount": { "type": "number" },
+        "billImageUrl": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "tripId", "category", "vendorName", "amount", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile information."
+    },
+    "/trips/{tripId}": {
+      "schema": "Trip",
+      "description": "Trip details."
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Expense details."
+    },
+    "/usernames/{username}": {
+      "schema": { "type": "object", "properties": { "uid": { "type": "string" } } },
+      "description": "Mapping of unique usernames to UIDs."
+    }
+  }
+}

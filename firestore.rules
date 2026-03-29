@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'name', 'username', 'createdAt']) &&
+             data.id is string && data.id == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.username is string && data.username.size() >= 3 && data.username.size() <= 20 &&
+             data.createdAt is number;
+    }
+
+    function isValidTrip(data) {
+      return data.keys().hasAll(['userId', 'tripTitle', 'startDate', 'endDate', 'totalAmount', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.tripTitle is string && data.tripTitle.size() > 0 && data.tripTitle.size() < 200 &&
+             data.startDate is string &&
+             data.endDate is string &&
+             data.totalAmount is number &&
+             data.createdAt is number &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000));
+    }
+
+    function isValidExpense(data) {
+      let allowedFields = ['tripId', 'category', 'vendorName', 'amount', 'createdAt', 'notes', 'billImageUrl'];
+      return data.keys().hasAll(['tripId', 'category', 'vendorName', 'amount', 'createdAt']) &&
+             data.keys().hasOnly(allowedFields) &&
+             data.tripId is string &&
+             data.category in ['Travel', 'Food', 'Hotel', 'Other'] &&
+             data.vendorName is string && data.vendorName.size() > 0 && data.vendorName.size() < 200 &&
+             data.amount is number && data.amount >= 0 &&
+             data.createdAt is number &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000)) &&
+             (!('billImageUrl' in data) || (data.billImageUrl is string && data.billImageUrl.size() < 1000000));
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserProfile(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserProfile(request.resource.data);
+    }
+
+    // Username Mapping (for uniqueness)
+    match /usernames/{username} {
+      allow get: if true; // Allow checking availability for a specific username
+      allow list: if false; // Do not allow listing all usernames
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
+    // Connectivity Test
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Trips
+    match /trips/{tripId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidTrip(request.resource.data);
+      allow update: if isDocOwner() && isValidTrip(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    // Expenses
+    match /expenses/{expenseId} {
+      // We need to verify the trip belongs to the user
+      function canAccessExpense(tripId) {
+        return get(/databases/$(database)/documents/trips/$(tripId)).data.userId == request.auth.uid;
+      }
+
+      allow read: if isAuthenticated() && canAccessExpense(resource.data.tripId);
+      allow create: if isAuthenticated() && canAccessExpense(request.resource.data.tripId) && isValidExpense(request.resource.data);
+      allow update: if isAuthenticated() && canAccessExpense(resource.data.tripId) && isValidExpense(request.resource.data);
+      allow delete: if isAuthenticated() && canAccessExpense(resource.data.tripId);
+    }
+  }
+}

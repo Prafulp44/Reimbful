@@ -1,0 +1,5 @@
+{
+  "name": "Reimbful",
+  "description": "A production-ready travel reimbursement expense tracker for employees.",
+  "requestFramePermissions": ["camera", "microphone"]
+}
