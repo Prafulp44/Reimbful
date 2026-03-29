@@ -90,27 +90,37 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
       // 2. Generate PDF
       const blob = await pdf(<TripReportPDF trip={trip} expenses={expenses} />).toBlob();
       
-      // 3. Convert to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      
-      reader.onloadend = async () => {
-        const base64data = reader.result as string;
-        const base64Content = base64data.split(',')[1];
+      // 3. Convert to base64 using a Promise
+      const base64Content = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result as string;
+          resolve(base64data.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
 
-        // 4. Send to API
-        await axios.post('/api/send-email', {
-          to: email,
-          subject: `Expense Report: ${trip.tripTitle}`,
-          body: `Please find attached the expense report for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
-          pdfBase64: base64Content
-        });
+      // 4. Send to API with timeout
+      const response = await axios.post('/api/send-email', {
+        to: email,
+        subject: `Expense Report: ${trip.tripTitle}`,
+        body: `Please find attached the expense report for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
+        pdfBase64: base64Content
+      }, {
+        timeout: 30000 // 30 seconds
+      });
+
+      if (response.data.success) {
         toast.success("Email sent successfully!");
-        setEmailLoading(null);
-      };
-    } catch (error) {
+      } else {
+        toast.error(response.data.message || "Failed to send email");
+      }
+    } catch (error: any) {
       console.error("Email Error:", error);
-      toast.error("Failed to send email");
+      const errorMessage = error.response?.data?.message || error.message || "Failed to send email";
+      toast.error(errorMessage);
+    } finally {
       setEmailLoading(null);
     }
   };

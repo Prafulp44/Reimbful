@@ -7,7 +7,8 @@ app.use(express.json({ limit: '50mb' }));
 // Initialize Resend with API Key from environment
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-app.post("/api/send-email", async (req, res) => {
+// Handle both /api/send-email and /send-email due to Vercel rewrite variations
+const emailHandler = async (req: any, res: any) => {
   const { to, subject, body, pdfBase64 } = req.body;
   
   if (!resend) {
@@ -18,11 +19,20 @@ app.post("/api/send-email", async (req, res) => {
     });
   }
 
+  // Check payload size (Vercel limit is 4.5MB)
+  const payloadSize = Buffer.byteLength(JSON.stringify(req.body));
+  if (payloadSize > 4 * 1024 * 1024) {
+    return res.status(413).json({
+      success: false,
+      message: "The report is too large to send via email (exceeds 4MB). Please try downloading it instead."
+    });
+  }
+
   try {
     console.log(`[Vercel API] Attempting to send real email to: ${to}`);
     
     const { data, error } = await resend.emails.send({
-      from: 'Reimbful <onboarding@resend.dev>', // Default Resend test address
+      from: 'Reimbful <onboarding@resend.dev>',
       to: [to],
       subject: subject,
       text: body,
@@ -45,6 +55,10 @@ app.post("/api/send-email", async (req, res) => {
     console.error("[Vercel API] Unexpected Error:", err);
     res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
   }
-});
+};
+
+app.post("/api/send-email", emailHandler);
+app.post("/send-email", emailHandler);
+app.post("/", emailHandler); // Fallback for direct function calls
 
 export default app;
