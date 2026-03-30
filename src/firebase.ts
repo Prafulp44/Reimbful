@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, getDocFromServer, doc } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+
 // @ts-ignore - Injected at runtime
 import firebaseConfigJson from '../firebase-applet-config.json';
 
@@ -18,8 +18,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const storage = getStorage(app, firebaseConfig.storageBucket);
-console.log("Firebase Storage initialized with bucket:", firebaseConfig.storageBucket);
 
 export enum OperationType {
   CREATE = 'create',
@@ -84,13 +82,6 @@ async function testConnection() {
     } else {
       console.error("Firestore Connection Check Failed:", error);
     }
-  }
-
-  // Test Storage (optional, just a log)
-  try {
-    console.log("Firebase Storage Bucket:", firebaseConfig.storageBucket);
-  } catch (err) {
-    console.error("Storage config check failed:", err);
   }
 }
 testConnection();

@@ -1,21 +1,29 @@
 import express from "express";
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// Initialize Resend with API Key from environment
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+// Initialize Nodemailer with Gmail credentials from environment
+const transporter = process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD 
+  ? nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      },
+    })
+  : null;
 
 // Handle both /api/send-email and /send-email due to Vercel rewrite variations
 const emailHandler = async (req: any, res: any) => {
   const { to, subject, body, pdfBase64 } = req.body;
   
-  if (!resend) {
-    console.error("[Vercel API] RESEND_API_KEY is not configured.");
+  if (!transporter) {
+    console.error("[Vercel API] Gmail credentials are not configured.");
     return res.status(500).json({ 
       success: false, 
-      message: "Email service not configured. Please add RESEND_API_KEY to Vercel environment variables." 
+      message: "Email service not configured. Please add GMAIL_USER and GMAIL_APP_PASSWORD to environment variables." 
     });
   }
 
@@ -29,28 +37,26 @@ const emailHandler = async (req: any, res: any) => {
   }
 
   try {
-    console.log(`[Vercel API] Attempting to send real email to: ${to}`);
+    console.log(`[Vercel API] Attempting to send email via Gmail to: ${to}`);
     
-    const { data, error } = await resend.emails.send({
-      from: 'Reimbful <onboarding@resend.dev>',
-      to: [to],
+    const mailOptions = {
+      from: `"Reimbful" <${process.env.GMAIL_USER}>`,
+      to: to,
       subject: subject,
       text: body,
       attachments: [
         {
           filename: 'Expense_Report.pdf',
           content: pdfBase64,
+          encoding: 'base64'
         },
       ],
-    });
+    };
 
-    if (error) {
-      console.error("[Vercel API] Resend Error:", error);
-      return res.status(400).json({ success: false, message: error.message });
-    }
+    const info = await transporter.sendMail(mailOptions);
 
-    console.log(`[Vercel API] Email sent successfully via Resend: ${data?.id}`);
-    res.json({ success: true, message: "Email sent successfully via Resend!" });
+    console.log(`[Vercel API] Email sent successfully via Gmail: ${info.messageId}`);
+    res.json({ success: true, message: "Email sent successfully via Gmail!" });
   } catch (err: any) {
     console.error("[Vercel API] Unexpected Error:", err);
     res.status(500).json({ success: false, message: err.message || "Internal Server Error" });

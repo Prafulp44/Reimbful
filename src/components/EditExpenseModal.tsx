@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { doc, updateDoc, increment } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { db, storage, handleFirestoreError, OperationType } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Expense, ExpenseCategory } from '../types';
-import { X, Loader2, Camera, Upload, Image as ImageIcon } from 'lucide-react';
+import { X, Loader2, Camera, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { fileToBase64, compressImage } from '../lib/fileUtils';
 
 interface EditExpenseModalProps {
   expense: Expense;
@@ -58,73 +58,34 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
       // If a new image was selected, process it
       if (billImage) {
         setProcessing(true);
-        setProcessProgress(10);
+        setProcessProgress(20);
         
-        const storageRef = ref(storage, `bills/${tripId}/${Date.now()}_${billImage.name}`);
-        let fileToUpload: Blob | File = billImage;
+        try {
+          let fileToProcess: Blob | File = billImage;
 
-        // Compress if it's an image
-        if (billImage.type.startsWith('image/')) {
-          setProcessProgress(20);
-          fileToUpload = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(billImage);
-            reader.onload = (event) => {
-              const img = new Image();
-              img.src = event.target?.result as string;
-              img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const MAX_WIDTH = 1200;
-                const MAX_HEIGHT = 1200;
-                let width = img.width;
-                let height = img.height;
+          // Compress if it's an image to stay under Firestore 1MB limit
+          if (billImage.type.startsWith('image/')) {
+            setProcessProgress(40);
+            // Use more aggressive compression for Firestore storage
+            fileToProcess = await compressImage(billImage, 800, 800, 0.5);
+            setProcessProgress(70);
+          }
 
-                if (width > height) {
-                  if (width > MAX_WIDTH) {
-                    height *= MAX_WIDTH / width;
-                    width = MAX_WIDTH;
-                  }
-                } else {
-                  if (height > MAX_HEIGHT) {
-                    width *= MAX_HEIGHT / height;
-                    height = MAX_HEIGHT;
-                  }
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx?.drawImage(img, 0, 0, width, height);
-                
-                canvas.toBlob((blob) => {
-                  if (blob) resolve(blob);
-                  else reject(new Error("Failed to compress image"));
-                }, 'image/jpeg', 0.7);
-              };
-              img.onerror = reject;
-            };
-            reader.onerror = reject;
-          });
+          // Convert to base64
+          billImageUrl = await fileToBase64(fileToProcess);
+          
+          // Check size (Firestore limit is 1MB per document)
+          if (billImageUrl.length > 1000000) {
+            throw new Error("File is too large for Firestore (max ~750KB after encoding). Please use a smaller file or a lower resolution image.");
+          }
+          
+          setProcessProgress(100);
+        } catch (processError: any) {
+          console.error("File processing error:", processError);
+          throw processError;
+        } finally {
+          setProcessing(false);
         }
-
-        // Upload to Firebase Storage
-        const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
-        
-        billImageUrl = await new Promise((resolve, reject) => {
-          uploadTask.on('state_changed', 
-            (snapshot) => {
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 70 + 30;
-              setProcessProgress(progress);
-            }, 
-            (error) => reject(error), 
-            async () => {
-              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              resolve(downloadURL);
-            }
-          );
-        });
-        
-        setProcessing(false);
       } else if (!previewUrl) {
         // If previewUrl was cleared, set billImageUrl to empty
         billImageUrl = '';
