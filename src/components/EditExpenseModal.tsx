@@ -33,6 +33,18 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Validate file type
+      const allowedExtensions = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png', '.webp'];
+      const allowedMimeTypes = ['image/', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      
+      const isAllowed = allowedMimeTypes.some(type => file.type.startsWith(type)) || 
+                        allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+
+      if (!isAllowed) {
+        toast.error("Invalid file type. Please upload an image, PDF, or Word document.");
+        return;
+      }
+
       if (file.size > 5 * 1024 * 1024) {
         toast.error("File size too large (max 5MB)");
         return;
@@ -262,7 +274,7 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
                 type="file" 
                 ref={fileInputRef} 
                 onChange={handleFileChange} 
-                accept="application/pdf,image/*,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
+                accept="*/*" 
                 className="hidden" 
               />
               <input 
