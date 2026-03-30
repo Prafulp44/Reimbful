@@ -7,6 +7,7 @@ import TripReportPDF, { TripSummaryPDF, ExpensePagePDF, PDFExpenseDetailPagePDF 
 import { FileText, Loader2 } from 'lucide-react';
 import { mergePDFs } from '../lib/pdfUtils';
 import toast from 'react-hot-toast';
+import { saveAs } from 'file-saver';
 
 interface PDFButtonProps {
   trip: Trip;
@@ -55,16 +56,33 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
 
       // 3. Merge all parts
       const finalBlob = await mergePDFs(parts);
+      
+      if (!finalBlob || finalBlob.size === 0) {
+        throw new Error("Generated PDF is empty");
+      }
 
       // 4. Trigger Download
-      const url = URL.createObjectURL(finalBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Reimbful_${trip.tripTitle.replace(/\s+/g, '_')}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const fileName = `Reimbful_${trip.tripTitle.replace(/\s+/g, '_')}.pdf`;
+      
+      // For mobile/iframe reliability, we'll try saveAs first, 
+      // but also provide a fallback or use a more direct method if needed.
+      try {
+        console.log("Triggering download for blob size:", finalBlob.size);
+        saveAs(finalBlob, fileName);
+      } catch (saveError) {
+        console.error("saveAs failed, trying manual download:", saveError);
+        const url = URL.createObjectURL(finalBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }, 100);
+      }
 
       toast.success("PDF generated successfully!");
     } catch (error) {
