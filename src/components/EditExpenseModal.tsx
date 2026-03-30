@@ -262,7 +262,7 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
                 type="file" 
                 ref={fileInputRef} 
                 onChange={handleFileChange} 
-                accept="image/*,.pdf,.doc,.docx" 
+                accept="application/pdf,image/*,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
                 className="hidden" 
               />
               <input 
