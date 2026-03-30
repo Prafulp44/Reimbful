@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { doc, updateDoc, increment } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db, storage, handleFirestoreError, OperationType } from '../firebase';
 import { Expense, ExpenseCategory } from '../types';
-import { X, Loader2, Camera, Image as ImageIcon } from 'lucide-react';
+import { X, Loader2, Camera, Upload, Image as ImageIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface EditExpenseModalProps {
@@ -20,6 +21,7 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
   const [billImage, setBillImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(expense.billImageUrl || null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     category: expense.category as ExpenseCategory,
@@ -28,7 +30,7 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
     notes: expense.notes || ''
   });
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
@@ -36,7 +38,13 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
         return;
       }
       setBillImage(file);
-      setPreviewUrl(URL.createObjectURL(file));
+      
+      // Only set preview URL for images
+      if (file.type.startsWith('image/')) {
+        setPreviewUrl(URL.createObjectURL(file));
+      } else {
+        setPreviewUrl(null);
+      }
     }
   };
 
@@ -50,46 +58,72 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
       // If a new image was selected, process it
       if (billImage) {
         setProcessing(true);
-        setProcessProgress(20);
+        setProcessProgress(10);
+        
+        const storageRef = ref(storage, `bills/${tripId}/${Date.now()}_${billImage.name}`);
+        let fileToUpload: Blob | File = billImage;
+
+        // Compress if it's an image
+        if (billImage.type.startsWith('image/')) {
+          setProcessProgress(20);
+          fileToUpload = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(billImage);
+            reader.onload = (event) => {
+              const img = new Image();
+              img.src = event.target?.result as string;
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1200;
+                const MAX_HEIGHT = 1200;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                  if (width > MAX_WIDTH) {
+                    height *= MAX_WIDTH / width;
+                    width = MAX_WIDTH;
+                  }
+                } else {
+                  if (height > MAX_HEIGHT) {
+                    width *= MAX_HEIGHT / height;
+                    height = MAX_HEIGHT;
+                  }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+                
+                canvas.toBlob((blob) => {
+                  if (blob) resolve(blob);
+                  else reject(new Error("Failed to compress image"));
+                }, 'image/jpeg', 0.7);
+              };
+              img.onerror = reject;
+            };
+            reader.onerror = reject;
+          });
+        }
+
+        // Upload to Firebase Storage
+        const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
         
         billImageUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(billImage);
-          reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target?.result as string;
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 800;
-              const MAX_HEIGHT = 800;
-              let width = img.width;
-              let height = img.height;
-
-              if (width > height) {
-                if (width > MAX_WIDTH) {
-                  height *= MAX_WIDTH / width;
-                  width = MAX_WIDTH;
-                }
-              } else {
-                if (height > MAX_HEIGHT) {
-                  width *= MAX_HEIGHT / height;
-                  height = MAX_HEIGHT;
-                }
-              }
-
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, width, height);
-              
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-              setProcessProgress(100);
-              resolve(dataUrl);
-            };
-            img.onerror = reject;
-          };
-          reader.onerror = reject;
+          uploadTask.on('state_changed', 
+            (snapshot) => {
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 70 + 30;
+              setProcessProgress(progress);
+            }, 
+            (error) => reject(error), 
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve(downloadURL);
+            }
+          );
         });
+        
         setProcessing(false);
       } else if (!previewUrl) {
         // If previewUrl was cleared, set billImageUrl to empty
@@ -191,16 +225,42 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-neutral-700 mb-1">Bill Image</label>
+            <label className="block text-sm font-semibold text-neutral-700 mb-1">Bill (Image, PDF, Word)</label>
             <div 
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
-                previewUrl ? 'border-orange-500 bg-orange-50' : 'border-neutral-200 bg-neutral-50 hover:border-orange-300'
+              className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+                billImage || previewUrl ? 'border-orange-500 bg-orange-50' : 'border-neutral-200 bg-neutral-50'
               }`}
             >
-              {previewUrl ? (
+              {billImage || previewUrl ? (
                 <div className="relative inline-block group">
-                  <img src={previewUrl} alt="Preview" className="h-32 w-32 object-cover rounded-xl shadow-md" />
+                  {previewUrl && (previewUrl.startsWith('data:image/') || previewUrl.includes('alt=media')) ? (
+                    <div className="relative">
+                      <img src={previewUrl} alt="Preview" className="h-32 w-32 object-cover rounded-xl shadow-md" />
+                      <a 
+                        href={previewUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl text-white text-xs font-bold"
+                      >
+                        View Full
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="h-32 w-32 bg-white rounded-xl shadow-md flex flex-col items-center justify-center p-2">
+                      <Upload className="w-8 h-8 text-orange-600 mb-2" />
+                      <p className="text-[10px] font-bold text-neutral-600 truncate w-full">{billImage?.name || 'View Document'}</p>
+                      {previewUrl && (
+                        <a 
+                          href={previewUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="mt-2 text-[10px] text-orange-600 font-bold hover:underline"
+                        >
+                          Open File
+                        </a>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -208,27 +268,46 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
                       setBillImage(null);
                       setPreviewUrl(null);
                     }}
-                    className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full shadow-lg hover:bg-red-700 transition-colors"
+                    className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full shadow-lg hover:bg-red-700 transition-colors z-10"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] py-1 rounded-b-xl opacity-0 group-hover:opacity-100 transition-opacity">
-                    Click to change
-                  </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-center">
-                  <div className="bg-white p-3 rounded-full shadow-sm mb-2">
-                    <Camera className="w-6 h-6 text-neutral-400" />
-                  </div>
-                  <p className="text-sm font-bold text-neutral-700">Click to upload bill</p>
-                  <p className="text-xs text-neutral-500 mt-1">Camera or Gallery</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-sm border border-neutral-200 hover:border-orange-300 transition-all"
+                  >
+                    <div className="bg-orange-50 p-3 rounded-full mb-2">
+                      <Camera className="w-6 h-6 text-orange-600" />
+                    </div>
+                    <p className="text-xs font-bold text-neutral-700">Take Photo</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-sm border border-neutral-200 hover:border-orange-300 transition-all"
+                  >
+                    <div className="bg-blue-50 p-3 rounded-full mb-2">
+                      <Upload className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <p className="text-xs font-bold text-neutral-700">Upload File</p>
+                  </button>
                 </div>
               )}
               <input 
                 type="file" 
                 ref={fileInputRef} 
-                onChange={handleImageChange} 
+                onChange={handleFileChange} 
+                accept="image/*,.pdf,.doc,.docx" 
+                className="hidden" 
+              />
+              <input 
+                type="file" 
+                ref={cameraInputRef} 
+                onChange={handleFileChange} 
                 accept="image/*" 
                 capture="environment"
                 className="hidden" 

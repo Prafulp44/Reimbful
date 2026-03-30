@@ -160,9 +160,15 @@ export default function TripDetail({ tripId, onBack }: TripDetailProps) {
                     <span>•</span>
                     <span>{format(new Date(expense.createdAt), 'MMM d')}</span>
                     {expense.billImageUrl && (
-                      <span className="flex items-center gap-1 text-orange-600 font-medium">
+                      <a 
+                        href={expense.billImageUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1 text-orange-600 font-medium hover:underline"
+                      >
                         <ImageIcon className="w-3 h-3" /> Bill
-                      </span>
+                      </a>
                     )}
                   </div>
                 </div>
