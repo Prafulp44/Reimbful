@@ -16,7 +16,8 @@ export default function EditTripModal({ trip, onClose }: EditTripModalProps) {
     tripTitle: trip.tripTitle,
     startDate: trip.startDate,
     endDate: trip.endDate,
-    notes: trip.notes || ''
+    notes: trip.notes || '',
+    reimbursementStatus: trip.reimbursementStatus || 'Pending'
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -27,7 +28,8 @@ export default function EditTripModal({ trip, onClose }: EditTripModalProps) {
         tripTitle: formData.tripTitle,
         startDate: formData.startDate,
         endDate: formData.endDate,
-        notes: formData.notes
+        notes: formData.notes,
+        reimbursementStatus: formData.reimbursementStatus
       });
       toast.success("Trip updated successfully!");
       onClose();
@@ -40,8 +42,8 @@ export default function EditTripModal({ trip, onClose }: EditTripModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start sm:items-center justify-center z-50 p-4 pt-10 sm:pt-4">
+      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-top duration-300">
         <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
           <h3 className="text-xl font-bold text-neutral-900">Edit Trip</h3>
           <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-full transition-colors">
@@ -89,6 +91,19 @@ export default function EditTripModal({ trip, onClose }: EditTripModalProps) {
                 />
               </div>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-neutral-700 mb-1">Reimbursement Status</label>
+            <select
+              className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+              value={formData.reimbursementStatus}
+              onChange={(e) => setFormData({ ...formData, reimbursementStatus: e.target.value as any })}
+            >
+              <option value="Pending">Pending</option>
+              <option value="Uploaded">Uploaded</option>
+              <option value="Paid">Paid</option>
+            </select>
           </div>
 
           <div>

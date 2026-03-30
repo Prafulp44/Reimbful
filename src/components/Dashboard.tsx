@@ -7,15 +7,17 @@ import {
   orderBy,
   deleteDoc,
   doc,
-  getDocs
+  getDocs,
+  updateDoc
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { Trip, Expense } from '../types';
-import { Plus, Calendar, IndianRupee, Trash2, ChevronRight, FileText, Mail, Loader2, Edit2 } from 'lucide-react';
+import { Trip, Expense, ReimbursementStatus } from '../types';
+import { Plus, Calendar, IndianRupee, Trash2, ChevronRight, FileText, Mail, Loader2, Edit2, Filter, ChevronDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatCurrency } from '../lib/utils';
 import { pdf } from '@react-pdf/renderer';
-import TripReportPDF from './TripReportPDF';
+import TripReportPDF, { TripSummaryPDF, ExpensePagePDF, PDFExpenseDetailPagePDF } from './TripReportPDF';
+import { mergePDFs } from '../lib/pdfUtils';
 import AddTripModal from './AddTripModal';
 import EditTripModal from './EditTripModal';
 import ConfirmDialog from './ConfirmDialog';
@@ -35,6 +37,13 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
   const [deletingTripId, setDeletingTripId] = useState<string | null>(null);
   const [isDeleteLoading, setIsDeleteLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReimbursementStatus | 'All'>('All');
+
+  const statusConfig: Record<ReimbursementStatus, { bg: string, text: string, label: string }> = {
+    'Pending': { bg: 'bg-red-50', text: 'text-red-600', label: 'Pending' },
+    'Uploaded': { bg: 'bg-yellow-50', text: 'text-yellow-600', label: 'Uploaded' },
+    'Paid': { bg: 'bg-green-50', text: 'text-green-600', label: 'Paid' }
+  };
 
   useEffect(() => {
     if (!auth.currentUser) return;
@@ -82,15 +91,40 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
       const q = query(
         collection(db, 'expenses'),
         where('tripId', '==', trip.id),
-        orderBy('createdAt', 'desc')
+        orderBy('createdAt', 'asc') // Changed to ascending for report flow
       );
       const snapshot = await getDocs(q);
       const expenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense));
 
-      // 2. Generate PDF
-      const blob = await pdf(<TripReportPDF trip={trip} expenses={expenses} />).toBlob();
+      // 2. Generate PDF Parts in Order
+      const parts: (ArrayBuffer | string)[] = [];
       
-      // 3. Convert to base64 using a Promise
+      // Part 1: Summary Page
+      const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={expenses} />).toBlob();
+      parts.push(await summaryBlob.arrayBuffer());
+
+      // Parts 2+: Expenses in order
+      for (const expense of expenses) {
+        if (!expense.billImageUrl) continue;
+
+        if (expense.billImageUrl.startsWith('data:application/pdf')) {
+          // PDF Attachment - Add detail page first
+          const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
+          parts.push(await detailBlob.arrayBuffer());
+          
+          // Then add the PDF itself
+          parts.push(expense.billImageUrl);
+        } else {
+          // Image Attachment - Generate a page for it
+          const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
+          parts.push(await pageBlob.arrayBuffer());
+        }
+      }
+
+      // 3. Merge all parts
+      const finalBlob = await mergePDFs(parts);
+      
+      // 4. Convert to base64 using a Promise
       const base64Content = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -98,10 +132,10 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
           resolve(base64data.split(',')[1]);
         };
         reader.onerror = reject;
-        reader.readAsDataURL(blob);
+        reader.readAsDataURL(finalBlob);
       });
 
-      // 4. Send to API with timeout
+      // 6. Send to API with timeout
       const response = await axios.post('/api/send-email', {
         to: email,
         subject: `Expense Report: ${trip.tripTitle}`,
@@ -125,6 +159,21 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
     }
   };
 
+  const handleStatusChange = async (tripId: string, newStatus: ReimbursementStatus) => {
+    try {
+      await updateDoc(doc(db, 'trips', tripId), {
+        reimbursementStatus: newStatus
+      });
+      toast.success(`Status updated to ${newStatus}`);
+    } catch (error) {
+      toast.error("Failed to update status");
+    }
+  };
+
+  const filteredTrips = trips.filter(trip => 
+    statusFilter === 'All' || trip.reimbursementStatus === statusFilter
+  );
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -135,37 +184,72 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-neutral-900">Your Trips</h2>
-        <span className="text-sm font-medium text-neutral-500 bg-neutral-100 px-3 py-1 rounded-full">
-          {trips.length} {trips.length === 1 ? 'Trip' : 'Trips'}
-        </span>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-neutral-900">Your Trips</h2>
+          <span className="text-sm font-medium text-neutral-500 bg-neutral-100 px-3 py-1 rounded-full">
+            {filteredTrips.length} {filteredTrips.length === 1 ? 'Trip' : 'Trips'}
+          </span>
+        </div>
+
+        {/* Filter UI */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+          <button
+            onClick={() => setStatusFilter('All')}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+              statusFilter === 'All' 
+                ? 'bg-neutral-900 text-white' 
+                : 'bg-white text-neutral-600 border border-neutral-200'
+            }`}
+          >
+            All
+          </button>
+          {(['Pending', 'Uploaded', 'Paid'] as ReimbursementStatus[]).map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                statusFilter === status 
+                  ? `${statusConfig[status].bg} ${statusConfig[status].text} border-2 border-current` 
+                  : 'bg-white text-neutral-600 border border-neutral-200'
+              }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {trips.length === 0 ? (
+      {filteredTrips.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-neutral-200 rounded-3xl p-12 text-center">
           <div className="bg-neutral-50 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Calendar className="w-8 h-8 text-neutral-300" />
           </div>
-          <h3 className="text-lg font-bold text-neutral-900">No trips yet</h3>
-          <p className="text-neutral-500 mt-1">Add your first travel trip to start tracking expenses.</p>
-          <button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="mt-6 bg-orange-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-orange-700 transition-colors"
-          >
-            Add Trip
-          </button>
+          <h3 className="text-lg font-bold text-neutral-900">No trips found</h3>
+          <p className="text-neutral-500 mt-1">
+            {statusFilter === 'All' 
+              ? "Add your first travel trip to start tracking expenses." 
+              : `No trips with status "${statusFilter}" found.`}
+          </p>
+          {statusFilter === 'All' && (
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="mt-6 bg-orange-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-orange-700 transition-colors"
+            >
+              Add Trip
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid gap-4">
-          {trips.map((trip) => (
+          {filteredTrips.map((trip) => (
             <div key={trip.id} className="bg-white rounded-3xl shadow-sm border border-neutral-100 overflow-hidden hover:shadow-md transition-shadow group">
               <div className="p-6">
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <h3 className="text-xl font-bold text-neutral-900">{trip.tripTitle}</h3>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 transition-opacity">
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
@@ -191,9 +275,28 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
                       <span>{format(new Date(trip.startDate), 'MMM d')} - {format(new Date(trip.endDate), 'MMM d, yyyy')}</span>
                     </div>
                   </div>
-                  <div className="bg-orange-50 text-orange-700 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1">
-                    <IndianRupee className="w-4 h-4" />
-                    <span>{trip.totalAmount.toLocaleString('en-IN')}</span>
+                  
+                  <div className="flex flex-col items-end gap-2">
+                    {/* Status Dropdown */}
+                    <div className="relative inline-block">
+                      <select
+                        value={trip.reimbursementStatus || 'Pending'}
+                        onChange={(e) => handleStatusChange(trip.id, e.target.value as ReimbursementStatus)}
+                        className={`appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-bold cursor-pointer outline-none transition-all border-none ${
+                          statusConfig[trip.reimbursementStatus || 'Pending'].bg
+                        } ${statusConfig[trip.reimbursementStatus || 'Pending'].text}`}
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Uploaded">Uploaded</option>
+                        <option value="Paid">Paid</option>
+                      </select>
+                      <ChevronDown className={`absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none ${statusConfig[trip.reimbursementStatus || 'Pending'].text}`} />
+                    </div>
+
+                    <div className="bg-orange-50 text-orange-700 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1">
+                      <IndianRupee className="w-4 h-4" />
+                      <span>{trip.totalAmount.toLocaleString('en-IN')}</span>
+                    </div>
                   </div>
                 </div>
 

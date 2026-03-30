@@ -33,6 +33,7 @@ import AddExpenseModal from './AddExpenseModal';
 import EditExpenseModal from './EditExpenseModal';
 import ConfirmDialog from './ConfirmDialog';
 import toast from 'react-hot-toast';
+import PDFButton from './PDFButton';
 
 interface TripDetailProps {
   tripId: string;
@@ -131,14 +132,17 @@ export default function TripDetail({ tripId, onBack }: TripDetailProps) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <h3 className="text-lg font-bold text-neutral-900">Expenses</h3>
-        <button 
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-2 text-orange-600 font-bold text-sm hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add Expense
-        </button>
+        <div className="flex items-center gap-2">
+          <PDFButton trip={trip} variant="compact" />
+          <button 
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-2 text-orange-600 font-bold text-sm hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add Expense
+          </button>
+        </div>
       </div>
 
       {expenses.length === 0 ? (
@@ -175,7 +179,7 @@ export default function TripDetail({ tripId, onBack }: TripDetailProps) {
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-neutral-900">{formatCurrency(expense.amount)}</span>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 transition-opacity">
                   <button 
                     onClick={() => setEditingExpense(expense)}
                     className="p-2 text-neutral-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"

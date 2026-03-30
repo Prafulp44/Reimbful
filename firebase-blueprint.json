@@ -23,10 +23,11 @@
         "startDate": { "type": "string" },
         "endDate": { "type": "string" },
         "totalAmount": { "type": "number" },
+        "reimbursementStatus": { "type": "string", "enum": ["Pending", "Uploaded", "Paid"] },
         "createdAt": { "type": "number" },
         "notes": { "type": "string" }
       },
-      "required": ["id", "userId", "tripTitle", "startDate", "endDate", "totalAmount", "createdAt"]
+      "required": ["id", "userId", "tripTitle", "startDate", "endDate", "totalAmount", "reimbursementStatus", "createdAt"]
     },
     "Expense": {
       "title": "Expense",

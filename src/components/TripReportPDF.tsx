@@ -8,7 +8,8 @@ Font.register({
   family: 'Helvetica',
   fonts: [
     { src: 'https://cdn.jsdelivr.net/npm/@canvas-fonts/helvetica@1.0.4/Helvetica.ttf' },
-    { src: 'https://cdn.jsdelivr.net/npm/@canvas-fonts/helvetica@1.0.4/Helvetica-Bold.ttf', fontWeight: 'bold' }
+    { src: 'https://cdn.jsdelivr.net/npm/@canvas-fonts/helvetica@1.0.4/Helvetica-Bold.ttf', fontWeight: 'bold' },
+    { src: 'https://cdn.jsdelivr.net/npm/@canvas-fonts/helvetica@1.0.4/Helvetica-Oblique.ttf', fontStyle: 'italic' }
   ]
 });
 
@@ -20,7 +21,7 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 30,
-    borderBottom: 2,
+    borderBottomWidth: 2,
     borderBottomColor: '#EA580C',
     paddingBottom: 10,
   },
@@ -76,7 +77,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     marginTop: 10,
     paddingTop: 10,
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#E5E5E5',
   },
   totalLabel: {
@@ -91,13 +92,14 @@ const styles = StyleSheet.create({
   },
   billImage: {
     width: '100%',
-    maxHeight: 400,
+    maxHeight: 550, // Reduced to ensure amount fits on same page
     objectFit: 'contain',
-    marginBottom: 20,
+    marginTop: 10,
+    marginBottom: 10,
     borderRadius: 8,
   },
   imagePage: {
-    padding: 40,
+    padding: 30,
     alignItems: 'center',
   }
 });
@@ -107,7 +109,7 @@ interface TripReportPDFProps {
   expenses: Expense[];
 }
 
-export default function TripReportPDF({ trip, expenses }: TripReportPDFProps) {
+export function TripSummaryPDF({ trip, expenses }: TripReportPDFProps) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -150,15 +152,70 @@ export default function TripReportPDF({ trip, expenses }: TripReportPDFProps) {
           </View>
         )}
       </Page>
-
-      {/* Attached Bills */}
-      {expenses.filter(e => e.billImageUrl).map((expense, index) => (
-        <Page key={`bill-${index}`} size="A4" style={styles.imagePage}>
-          <Text style={[styles.sectionTitle, { marginBottom: 20 }]}>Bill: {expense.vendorName} ({expense.category})</Text>
-          <Image src={expense.billImageUrl!} style={styles.billImage} />
-          <Text style={styles.subtitle}>Amount: ₹{expense.amount.toLocaleString('en-IN')}</Text>
-        </Page>
-      ))}
     </Document>
   );
+}
+
+export function ExpensePagePDF({ expense }: { expense: Expense }) {
+  return (
+    <Document>
+      <Page size="A4" style={styles.imagePage}>
+        <View style={{ width: '100%', borderBottomWidth: 1, borderBottomColor: '#E5E5E5', paddingBottom: 10, marginBottom: 15 }}>
+          <Text style={styles.sectionTitle}>Bill: {expense.vendorName} ({expense.category})</Text>
+          <Text style={styles.subtitle}>Date: {format(new Date(expense.createdAt), 'MMM d, yyyy')}</Text>
+        </View>
+        
+        <Image src={expense.billImageUrl!} style={styles.billImage} />
+        
+        <View style={{ marginTop: 'auto', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E5E5E5', width: '100%', alignItems: 'flex-end' }}>
+          <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#171717' }}>
+            Amount: ₹{expense.amount.toLocaleString('en-IN')}
+          </Text>
+        </View>
+      </Page>
+    </Document>
+  );
+}
+
+export function PDFExpenseDetailPagePDF({ expense }: { expense: Expense }) {
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Expense Detail</Text>
+          <Text style={styles.subtitle}>
+            Vendor: {expense.vendorName}
+          </Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Details</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={{ fontSize: 12, color: '#404040', marginBottom: 5 }}>Category: {expense.category}</Text>
+            <Text style={{ fontSize: 12, color: '#404040', marginBottom: 5 }}>Date: {format(new Date(expense.createdAt), 'MMM d, yyyy')}</Text>
+            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#171717', marginBottom: 5 }}>Amount: ₹{expense.amount.toLocaleString('en-IN')}</Text>
+          </View>
+        </View>
+
+        {expense.notes && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Notes</Text>
+            <Text style={{ fontSize: 10, color: '#404040' }}>{expense.notes}</Text>
+          </View>
+        )}
+
+        <View style={{ marginTop: 'auto', alignItems: 'center' }}>
+          <Text style={{ fontSize: 10, color: '#A3A3A3', fontStyle: 'italic' }}>
+            Please find bill on next page
+          </Text>
+        </View>
+      </Page>
+    </Document>
+  );
+}
+
+// Keep the original component for backward compatibility if needed, 
+// but we'll use the sub-components for the new interleaving logic.
+export default function TripReportPDF({ trip, expenses }: TripReportPDFProps) {
+  return <TripSummaryPDF trip={trip} expenses={expenses} />;
 }

@@ -23,12 +23,13 @@ service cloud.firestore {
     }
 
     function isValidTrip(data) {
-      return data.keys().hasAll(['userId', 'tripTitle', 'startDate', 'endDate', 'totalAmount', 'createdAt']) &&
+      return data.keys().hasAll(['userId', 'tripTitle', 'startDate', 'endDate', 'totalAmount', 'reimbursementStatus', 'createdAt']) &&
              data.userId is string && data.userId == request.auth.uid &&
              data.tripTitle is string && data.tripTitle.size() > 0 && data.tripTitle.size() < 200 &&
              data.startDate is string &&
              data.endDate is string &&
              data.totalAmount is number &&
+             data.reimbursementStatus in ['Pending', 'Uploaded', 'Paid'] &&
              data.createdAt is number &&
              (!('notes' in data) || (data.notes is string && data.notes.size() < 1000));
     }

@@ -1,4 +1,5 @@
 export type ExpenseCategory = 'Travel' | 'Food' | 'Hotel' | 'Other';
+export type ReimbursementStatus = 'Pending' | 'Uploaded' | 'Paid';
 
 export interface UserProfile {
   id: string;
@@ -14,6 +15,7 @@ export interface Trip {
   startDate: string;
   endDate: string;
   totalAmount: number;
+  reimbursementStatus: ReimbursementStatus;
   createdAt: number;
   notes?: string;
 }

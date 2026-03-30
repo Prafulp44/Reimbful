@@ -125,8 +125,8 @@ export default function AddExpenseModal({ tripId, onClose }: AddExpenseModalProp
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
-      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start sm:items-center justify-center z-50 p-4 pt-10 sm:pt-4">
+      <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-top duration-300">
         <div className="p-6 border-b border-neutral-100 flex items-center justify-between">
           <h3 className="text-xl font-bold text-neutral-900">Add Expense</h3>
           <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-full transition-colors">
