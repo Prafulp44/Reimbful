@@ -12,12 +12,14 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { Trip, Expense, ReimbursementStatus } from '../types';
-import { Plus, Calendar, IndianRupee, Trash2, ChevronRight, FileText, Mail, Loader2, Edit2, Filter, ChevronDown } from 'lucide-react';
+import { Plus, Calendar, IndianRupee, Trash2, ChevronRight, FileText, Mail, Loader2, Edit2, Filter, ChevronDown, HelpCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatCurrency } from '../lib/utils';
 import { pdf } from '@react-pdf/renderer';
 import TripReportPDF, { TripSummaryPDF, ExpensePagePDF, PDFExpenseDetailPagePDF } from './TripReportPDF';
+import SOPPDF from './SOPPDF';
 import { mergePDFs } from '../lib/pdfUtils';
+import { saveAs } from 'file-saver';
 import AddTripModal from './AddTripModal';
 import EditTripModal from './EditTripModal';
 import ConfirmDialog from './ConfirmDialog';
@@ -170,6 +172,18 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
     }
   };
 
+  const handleDownloadSOP = async () => {
+    const loadingToast = toast.loading("Generating SOP PDF...");
+    try {
+      const blob = await pdf(<SOPPDF />).toBlob();
+      saveAs(blob, 'Reimbful_SOP.pdf');
+      toast.success("SOP Downloaded successfully!", { id: loadingToast });
+    } catch (error) {
+      console.error("SOP Error:", error);
+      toast.error("Failed to generate SOP", { id: loadingToast });
+    }
+  };
+
   const filteredTrips = trips.filter(trip => 
     statusFilter === 'All' || trip.reimbursementStatus === statusFilter
   );
@@ -187,9 +201,19 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-neutral-900">Your Trips</h2>
-          <span className="text-sm font-medium text-neutral-500 bg-neutral-100 px-3 py-1 rounded-full">
-            {filteredTrips.length} {filteredTrips.length === 1 ? 'Trip' : 'Trips'}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadSOP}
+              className="flex items-center gap-2 text-sm font-bold text-orange-600 bg-orange-50 px-4 py-2 rounded-xl hover:bg-orange-100 transition-all"
+              title="Download Help Guide (SOP)"
+            >
+              <HelpCircle className="w-4 h-4" />
+              SOP
+            </button>
+            <span className="text-sm font-medium text-neutral-500 bg-neutral-100 px-3 py-1 rounded-full">
+              {filteredTrips.length} {filteredTrips.length === 1 ? 'Trip' : 'Trips'}
+            </span>
+          </div>
         </div>
 
         {/* Filter UI */}
