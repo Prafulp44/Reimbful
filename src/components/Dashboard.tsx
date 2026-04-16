@@ -87,6 +87,8 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
     const email = window.prompt("Enter recipient email ID:");
     if (!email) return;
 
+    const useCombined = window.confirm("Would you like to send ONE combined report instead of separate files? (Recommended for mobile/large trips)");
+
     setEmailLoading(trip.id);
     try {
       // 1. Fetch expenses for the trip
@@ -103,57 +105,71 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
         return;
       }
 
-      // 2. Prepare groups
       const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
-      
-      // 3. Generate PDFs in parallel for all categories
-      const attachmentPromises = categories.map(async (category) => {
-        const categoryExpenses = expenses.filter(e => e.category === category);
-        if (categoryExpenses.length === 0) return null;
+      const attachments: { filename: string, content: string }[] = [];
 
-        // Collect all parts generation promises
-        const partPromises: Promise<ArrayBuffer | string>[] = [];
-        
-        // Summary page
-        partPromises.push(pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
-
-        // Expense details
-        for (const expense of categoryExpenses) {
-          if (!expense.billImageUrl) continue;
-
-          if (expense.billImageUrl.startsWith('data:application/pdf')) {
-            partPromises.push(pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
-            partPromises.push(Promise.resolve(expense.billImageUrl));
-          } else {
-            partPromises.push(pdf(<ExpensePagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
+      if (useCombined) {
+        toast.loading("Generating combined report...", { duration: 2000 });
+        const masterParts: (ArrayBuffer | string)[] = [];
+        for (const category of categories) {
+          const catExpenses = expenses.filter(e => e.category === category);
+          if (catExpenses.length === 0) continue;
+          masterParts.push(await pdf(<TripSummaryPDF trip={trip} expenses={catExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
+          for (const exp of catExpenses) {
+            if (!exp.billImageUrl) continue;
+            if (exp.billImageUrl.startsWith('data:application/pdf')) {
+              masterParts.push(await pdf(<PDFExpenseDetailPagePDF expense={exp} />).toBlob().then(b => b.arrayBuffer()));
+              masterParts.push(exp.billImageUrl);
+            } else {
+              masterParts.push(await pdf(<ExpensePagePDF expense={exp} />).toBlob().then(b => b.arrayBuffer()));
+            }
           }
         }
+        const finalBlob = await mergePDFs(masterParts);
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(finalBlob);
+        });
+        attachments.push({ filename: `${dateStr} Full Report.pdf`, content: base64 });
+      } else {
+        // 3. Generate PDFs in parallel for all categories (Split)
+        const attachmentPromises = categories.map(async (category) => {
+          const categoryExpenses = expenses.filter(e => e.category === category);
+          if (categoryExpenses.length === 0) return null;
 
-        const parts = await Promise.all(partPromises);
-        const finalBlob = await mergePDFs(parts);
-        
-        if (finalBlob && finalBlob.size > 0) {
-          const base64Content = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64data = reader.result as string;
-              resolve(base64data.split(',')[1]);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(finalBlob);
-          });
+          const partPromises: Promise<ArrayBuffer | string>[] = [];
+          partPromises.push(pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
 
-          return {
-            filename: `${dateStr} ${category}.pdf`,
-            content: base64Content
-          };
-        }
-        return null;
-      });
+          for (const expense of categoryExpenses) {
+            if (!expense.billImageUrl) continue;
+            if (expense.billImageUrl.startsWith('data:application/pdf')) {
+              partPromises.push(pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
+              partPromises.push(Promise.resolve(expense.billImageUrl));
+            } else {
+              partPromises.push(pdf(<ExpensePagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
+            }
+          }
 
-      const results = await Promise.all(attachmentPromises);
-      const attachments = results.filter((r): r is { filename: string, content: string } => r !== null);
+          const parts = await Promise.all(partPromises);
+          const finalBlob = await mergePDFs(parts);
+          
+          if (finalBlob && finalBlob.size > 0) {
+            const base64Content = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(finalBlob);
+            });
+
+            return { filename: `${dateStr} ${category}.pdf`, content: base64Content };
+          }
+          return null;
+        });
+
+        const results = await Promise.all(attachmentPromises);
+        attachments.push(...results.filter((r): r is { filename: string, content: string } => r !== null));
+      }
 
       if (attachments.length === 0) {
         toast.error("No reports generated.");

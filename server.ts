@@ -35,31 +35,36 @@ async function startServer() {
     }
 
     try {
-      const { data, error } = await resend.emails.send({
-        from: 'Reimbful <reports@reimbful.com>', // Note: This needs to be a verified domain in Resend
-        to: [to],
-        subject: subject,
-        text: body,
-        attachments: pdfAttachments.map((att: any) => ({
-          filename: att.filename,
-          content: Buffer.from(att.content, 'base64'),
-        })),
+      console.log(`[Email Service] Sending via Resend API to: ${to}`);
+      console.log(`[Email Service] Attachment filenames: ${pdfAttachments.map((a: any) => a.filename).join(', ')}`);
+      
+      const resendResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+          to: [to],
+          subject: subject,
+          text: body,
+          attachments: pdfAttachments.map((att: any) => ({
+            filename: att.filename,
+            content: att.content,
+          })),
+        }),
       });
 
-      if (error) {
-        console.error("[Resend Error]:", error);
-        // Fallback or specific handling
-        if (error.name === 'validation_error' && error.message.includes('verified')) {
-          return res.status(400).json({ 
-            success: false, 
-            message: "Email sending failed: The sender address 'reports@reimbful.com' is not verified in Resend. Please verify your domain or use 'onboarding@resend.dev' for testing." 
-          });
-        }
-        return res.status(500).json({ success: false, message: error.message });
+      const data = await resendResponse.json();
+
+      if (!resendResponse.ok) {
+        console.error("[Resend API Error]:", data);
+        return res.status(resendResponse.status).json({ success: false, message: data.message || "Resend API error" });
       }
 
-      console.log("[Email Service] Email sent via Resend:", data?.id);
-      res.json({ success: true, message: "Email sent successfully via Resend", id: data?.id });
+      console.log("[Email Service] Email sent via Resend API:", data.id);
+      res.json({ success: true, message: "Email sent successfully via Resend", id: data.id });
     } catch (err: any) {
       console.error("[Email Service Exception]:", err);
       res.status(500).json({ success: false, message: err.message });
