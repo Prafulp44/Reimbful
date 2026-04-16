@@ -20,6 +20,10 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // API Route for sending email
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
+  });
+
   app.post("/api/send-email", async (req, res) => {
     const { to, subject, body, attachments } = req.body;
     
@@ -45,7 +49,21 @@ async function startServer() {
         if (!att.content || att.content.length < 10) {
           console.error(`[Email Service] Attachment ${idx} (${att.filename}) has INVALID or EMPTY content!`);
         } else {
-          console.log(`[Email Service] Attachment ${idx} (${att.filename}) size: ${Math.round(att.content.length * 0.75 / 1024)} KB (approx)`);
+          // Robust base64 cleaning
+          const cleanBase64 = att.content.includes('base64,') ? att.content.split('base64,')[1] : att.content;
+          const buffer = Buffer.from(cleanBase64.replace(/\s/g, ''), 'base64');
+          
+          const magicNumber = buffer.toString('utf8', 0, 5);
+          if (magicNumber !== '%PDF-') {
+            console.error(`[Email Service] Attachment ${idx} (${att.filename}) is NOT A VALID PDF! Magic number: "${magicNumber}" (Size: ${buffer.length} bytes)`);
+          } else {
+            console.log(`[Email Service] Attachment ${idx} (${att.filename}) verified size: ${Math.round(buffer.length / 1024)} KB`);
+          }
+          
+          return {
+            filename: att.filename,
+            content: buffer,
+          };
         }
         return {
           filename: att.filename,
@@ -76,18 +94,35 @@ async function startServer() {
 
   // Proxy route for mobile downloads to bypass iframe/blob issues
   app.post("/api/download-pdf", (req, res) => {
+    console.log("[Download Service] Received download request for:", req.body.filename);
     const { filename, content } = req.body;
+    
     if (!filename || !content) {
+      console.error("[Download Service] Missing filename or content");
       return res.status(400).send("Missing filename or content");
     }
 
     try {
-      const buffer = Buffer.from(content, 'base64');
+      // Clean content: remove data URL prefix and whitespace
+      const cleanContent = content.includes('base64,') ? content.split('base64,')[1] : content;
+      const buffer = Buffer.from(cleanContent.replace(/\s/g, ''), 'base64');
+      
+      console.log(`[Download Service] Sending PDF: ${filename} (${buffer.length} bytes)`);
+      
+      // Verify PDF magic number
+      const magicNumber = buffer.toString('utf8', 0, 5);
+      if (magicNumber !== '%PDF-') {
+        console.error(`[Download Service] INVALID PDF FORMAT! Magic number was: "${magicNumber}" (Decoded size: ${buffer.length} bytes)`);
+      } else {
+        console.log(`[Download Service] PDF Magic Number verified: ${magicNumber}`);
+      }
+      
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
-      res.end(buffer);
+      res.status(200).send(buffer);
     } catch (error) {
+      console.error("[Download Service] Failed:", error);
       res.status(500).send("Download failed");
     }
   });

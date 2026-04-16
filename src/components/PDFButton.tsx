@@ -75,14 +75,15 @@ export default function PDFButton({ trip, variant = 'full', specificCategory, ca
           if (isMobile) {
             const reader = new FileReader();
             reader.onloadend = () => {
-              const base64 = (reader.result as string).split(',')[1];
+              const res = reader.result as string;
+              const base64 = res.includes(',') ? res.split(',')[1] : res;
               const form = document.createElement('form');
               form.method = 'POST';
               form.action = '/api/download-pdf';
               form.target = '_blank'; // Open in new tab for better mobile reliability
               
               const fn = document.createElement('input'); fn.type = 'hidden'; fn.name = 'filename'; fn.value = fileName;
-              const content = document.createElement('input'); content.type = 'hidden'; content.name = 'content'; content.value = base64;
+              const content = document.createElement('input'); content.type = 'hidden'; content.name = 'content'; content.value = base64.replace(/\s/g, '');
               
               form.appendChild(fn); form.appendChild(content);
               document.body.appendChild(form);
@@ -138,7 +139,8 @@ export default function PDFButton({ trip, variant = 'full', specificCategory, ca
             if (isMobile) {
               const reader = new FileReader();
               reader.onloadend = async () => {
-                const base64Content = (reader.result as string).split(',')[1];
+                const res = reader.result as string;
+                const base64Content = res.includes(',') ? res.split(',')[1] : res;
                 
                 // Create a temporary form to trigger a real POST download
                 const form = document.createElement('form');
@@ -154,7 +156,7 @@ export default function PDFButton({ trip, variant = 'full', specificCategory, ca
                 const cInput = document.createElement('input');
                 cInput.type = 'hidden';
                 cInput.name = 'content';
-                cInput.value = base64Content;
+                cInput.value = base64Content.replace(/\s/g, '');
                 
                 form.appendChild(fnInput);
                 form.appendChild(cInput);
