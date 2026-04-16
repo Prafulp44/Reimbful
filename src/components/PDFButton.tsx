@@ -40,7 +40,7 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
 
       // 3. Generate PDFs in parallel for all categories
-      const pdfGenerationPromises = categories.map(async (category) => {
+      const pdfGenerationPromises = categories.map(async (category, index) => {
         const categoryExpenses = allExpenses.filter(e => e.category === category);
         if (categoryExpenses.length === 0) return;
 
@@ -68,21 +68,22 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
         if (finalBlob && finalBlob.size > 0) {
           const fileName = `${dateStr} ${category}.pdf`;
           
+          // Add a small delay for each download to prevent browser blocking multiple files
+          await new Promise(resolve => setTimeout(resolve, index * 800));
+
           try {
+            // Standard saving
             saveAs(finalBlob, fileName);
           } catch (saveError) {
-            // Robust mobile fallback
+            // Mobile fallback
             const url = URL.createObjectURL(finalBlob);
             const link = document.createElement('a');
             link.href = url;
             link.download = fileName;
-            link.target = '_blank';
             document.body.appendChild(link);
             link.click();
-            setTimeout(() => {
-              document.body.removeChild(link);
-              URL.revokeObjectURL(url);
-            }, 500);
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
           }
         }
       });

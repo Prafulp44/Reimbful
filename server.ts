@@ -2,9 +2,15 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import { Resend } from 'resend';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 async function startServer() {
   const app = express();
@@ -19,14 +25,45 @@ async function startServer() {
     // Support legacy single attachment for compatibility
     const pdfAttachments = attachments || (req.body.pdfBase64 ? [{ filename: 'report.pdf', content: req.body.pdfBase64 }] : []);
 
-    console.log(`[Email Service] Sending email to: ${to}`);
-    console.log(`[Email Service] Subject: ${subject}`);
-    console.log(`[Email Service] Attachments: ${pdfAttachments.length}`);
-    
-    // Simulate a delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log(`[Email Service] Attempting to send email to: ${to}`);
+    console.log(`[Email Service] Attachments received: ${pdfAttachments.length}`);
 
-    res.json({ success: true, message: "Email sent successfully (simulated)" });
+    if (!resend) {
+      console.warn("[Email Service] RESEND_API_KEY not found. Simulating success.");
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return res.json({ success: true, message: "Email sent successfully (simulated - no API key)" });
+    }
+
+    try {
+      const { data, error } = await resend.emails.send({
+        from: 'Reimbful <reports@reimbful.com>', // Note: This needs to be a verified domain in Resend
+        to: [to],
+        subject: subject,
+        text: body,
+        attachments: pdfAttachments.map((att: any) => ({
+          filename: att.filename,
+          content: Buffer.from(att.content, 'base64'),
+        })),
+      });
+
+      if (error) {
+        console.error("[Resend Error]:", error);
+        // Fallback or specific handling
+        if (error.name === 'validation_error' && error.message.includes('verified')) {
+          return res.status(400).json({ 
+            success: false, 
+            message: "Email sending failed: The sender address 'reports@reimbful.com' is not verified in Resend. Please verify your domain or use 'onboarding@resend.dev' for testing." 
+          });
+        }
+        return res.status(500).json({ success: false, message: error.message });
+      }
+
+      console.log("[Email Service] Email sent via Resend:", data?.id);
+      res.json({ success: true, message: "Email sent successfully via Resend", id: data?.id });
+    } catch (err: any) {
+      console.error("[Email Service Exception]:", err);
+      res.status(500).json({ success: false, message: err.message });
+    }
   });
 
   // Vite middleware for development
