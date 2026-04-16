@@ -35,41 +35,59 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
         return;
       }
 
-      // 2. Group expenses by category
+      // 2. Prepare groups
       const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
 
-      for (const category of categories) {
+      // 3. Generate PDFs in parallel for all categories
+      const pdfGenerationPromises = categories.map(async (category) => {
         const categoryExpenses = allExpenses.filter(e => e.category === category);
-        if (categoryExpenses.length === 0) continue;
+        if (categoryExpenses.length === 0) return;
 
-        // Generate PDF for this category
-        const parts: (ArrayBuffer | string)[] = [];
+        // Collect all parts generation promises for this category
+        const partPromises: Promise<ArrayBuffer | string>[] = [];
         
-        // Part 1: Summary Page
-        const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob();
-        parts.push(await summaryBlob.arrayBuffer());
+        // Summary page
+        partPromises.push(pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
 
-        // Parts 2+: Expenses in category
+        // Expense details
         for (const expense of categoryExpenses) {
           if (!expense.billImageUrl) continue;
 
           if (expense.billImageUrl.startsWith('data:application/pdf')) {
-            const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
-            parts.push(await detailBlob.arrayBuffer());
-            parts.push(expense.billImageUrl);
+            partPromises.push(pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
+            partPromises.push(Promise.resolve(expense.billImageUrl));
           } else {
-            const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
-            parts.push(await pageBlob.arrayBuffer());
+            partPromises.push(pdf(<ExpensePagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
           }
         }
 
+        const parts = await Promise.all(partPromises);
         const finalBlob = await mergePDFs(parts);
+        
         if (finalBlob && finalBlob.size > 0) {
           const fileName = `${dateStr} ${category}.pdf`;
-          saveAs(finalBlob, fileName);
+          
+          try {
+            saveAs(finalBlob, fileName);
+          } catch (saveError) {
+            // Robust mobile fallback
+            const url = URL.createObjectURL(finalBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            setTimeout(() => {
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+            }, 500);
+          }
         }
-      }
+      });
+
+      await Promise.all(pdfGenerationPromises);
 
       toast.success("PDFs generated and downloaded by category!");
     } catch (error) {

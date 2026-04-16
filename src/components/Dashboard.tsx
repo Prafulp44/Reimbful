@@ -93,41 +93,46 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
       const q = query(
         collection(db, 'expenses'),
         where('tripId', '==', trip.id),
-        orderBy('createdAt', 'asc') // Changed to ascending for report flow
+        orderBy('createdAt', 'asc')
       );
       const snapshot = await getDocs(q);
       const expenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense));
 
-      // 2. Group expenses by category
+      if (expenses.length === 0) {
+        toast.error("No expenses found for this trip.");
+        return;
+      }
+
+      // 2. Prepare groups
       const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
-      const attachments: { filename: string, content: string }[] = [];
-
-      for (const category of categories) {
+      
+      // 3. Generate PDFs in parallel for all categories
+      const attachmentPromises = categories.map(async (category) => {
         const categoryExpenses = expenses.filter(e => e.category === category);
-        if (categoryExpenses.length === 0) continue;
+        if (categoryExpenses.length === 0) return null;
 
-        const parts: (ArrayBuffer | string)[] = [];
+        // Collect all parts generation promises
+        const partPromises: Promise<ArrayBuffer | string>[] = [];
         
-        // Part 1: Summary Page
-        const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob();
-        parts.push(await summaryBlob.arrayBuffer());
+        // Summary page
+        partPromises.push(pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
 
-        // Parts 2+: Expenses in category
+        // Expense details
         for (const expense of categoryExpenses) {
           if (!expense.billImageUrl) continue;
 
           if (expense.billImageUrl.startsWith('data:application/pdf')) {
-            const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
-            parts.push(await detailBlob.arrayBuffer());
-            parts.push(expense.billImageUrl);
+            partPromises.push(pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
+            partPromises.push(Promise.resolve(expense.billImageUrl));
           } else {
-            const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
-            parts.push(await pageBlob.arrayBuffer());
+            partPromises.push(pdf(<ExpensePagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
           }
         }
 
+        const parts = await Promise.all(partPromises);
         const finalBlob = await mergePDFs(parts);
+        
         if (finalBlob && finalBlob.size > 0) {
           const base64Content = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -138,27 +143,31 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
             reader.onerror = reject;
             reader.readAsDataURL(finalBlob);
           });
-          
-          attachments.push({
+
+          return {
             filename: `${dateStr} ${category}.pdf`,
             content: base64Content
-          });
+          };
         }
-      }
+        return null;
+      });
+
+      const results = await Promise.all(attachmentPromises);
+      const attachments = results.filter((r): r is { filename: string, content: string } => r !== null);
 
       if (attachments.length === 0) {
-        toast.error("No expenses found for this trip.");
+        toast.error("No reports generated.");
         return;
       }
 
-      // 6. Send to API with timeout
+      // 6. Send to API with a VERY generous timeout for large attachments
       const response = await axios.post('/api/send-email', {
         to: email,
         subject: `Expense Report: ${trip.tripTitle}`,
         body: `Please find attached the category-wise expense reports for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
         attachments: attachments
       }, {
-        timeout: 30000 // 30 seconds
+        timeout: 120000 // 120 seconds for large multi-attachment payloads
       });
 
       if (response.data.success) {
