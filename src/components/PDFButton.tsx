@@ -75,6 +75,7 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
               const form = document.createElement('form');
               form.method = 'POST';
               form.action = '/api/download-pdf';
+              form.target = '_blank'; // Open in new tab for better mobile reliability
               
               const fn = document.createElement('input'); fn.type = 'hidden'; fn.name = 'filename'; fn.value = fileName;
               const content = document.createElement('input'); content.type = 'hidden'; content.name = 'content'; content.value = base64;
@@ -139,6 +140,7 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
                 const form = document.createElement('form');
                 form.method = 'POST';
                 form.action = '/api/download-pdf';
+                form.target = '_blank'; // Open in new tab
                 
                 const fnInput = document.createElement('input');
                 fnInput.type = 'hidden';

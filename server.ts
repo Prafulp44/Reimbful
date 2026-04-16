@@ -41,9 +41,11 @@ async function startServer() {
       console.log(`[Email Service] Sending via Resend SDK to: ${to}`);
       console.log(`[Email Service] Attachment count: ${pdfAttachments.length}`);
 
-      const attachmentPayload = pdfAttachments.map((att: any) => {
-        if (!att.content) {
-          console.error(`[Email Service] Attachment ${att.filename} has NO content`);
+      const attachmentPayload = pdfAttachments.map((att: any, idx: number) => {
+        if (!att.content || att.content.length < 10) {
+          console.error(`[Email Service] Attachment ${idx} (${att.filename}) has INVALID or EMPTY content!`);
+        } else {
+          console.log(`[Email Service] Attachment ${idx} (${att.filename}) size: ${Math.round(att.content.length * 0.75 / 1024)} KB (approx)`);
         }
         return {
           filename: att.filename,

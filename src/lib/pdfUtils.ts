@@ -14,13 +14,20 @@ export async function mergePDFs(parts: (ArrayBuffer | string)[]): Promise<Blob> 
     try {
       let partBytes: Uint8Array;
       if (typeof part === 'string') {
-        console.log(`Processing part ${i+1}: base64 string`);
+        process.env.NODE_ENV === 'development' && console.log(`Processing part ${i+1}: base64 string`);
         // Remove data URL prefix if present
-        const cleanBase64 = part.startsWith('data:application/pdf;base64,') 
-          ? part.replace('data:application/pdf;base64,', '') 
+        const cleanBase64 = part.includes('base64,') 
+          ? part.split('base64,')[1] 
           : part;
           
-        partBytes = Uint8Array.from(atob(cleanBase64), c => c.charCodeAt(0));
+        // Use a more robust way to handle base64 strings
+        const binaryString = atob(cleanBase64.trim().replace(/\s/g, ''));
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let j = 0; j < len; j++) {
+          bytes[j] = binaryString.charCodeAt(j);
+        }
+        partBytes = bytes;
       } else {
         console.log(`Processing part ${i+1}: ArrayBuffer`);
         partBytes = new Uint8Array(part);

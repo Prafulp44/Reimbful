@@ -127,11 +127,15 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
           }
         }
         const finalBlob = await mergePDFs(masterParts);
+        console.log(`[Email] Combined PDF size: ${finalBlob.size} bytes`);
+        
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => {
             const res = reader.result as string;
-            resolve(res.includes(',') ? res.split(',')[1] : res);
+            // Robust base64 extraction
+            const base64Part = res.includes(',') ? res.split(',')[1] : res;
+            resolve(base64Part.replace(/\s/g, '')); // Remove any whitespace
           };
           reader.readAsDataURL(finalBlob);
         });
@@ -156,13 +160,15 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
 
           const parts = await Promise.all(partPromises);
           const finalBlob = await mergePDFs(parts);
+          console.log(`[Email] Category ${category} PDF size: ${finalBlob?.size} bytes`);
           
           if (finalBlob && finalBlob.size > 0) {
             const base64Content = await new Promise<string>((resolve) => {
               const reader = new FileReader();
               reader.onloadend = () => {
                 const res = reader.result as string;
-                resolve(res.includes(',') ? res.split(',')[1] : res);
+                const base64Part = res.includes(',') ? res.split(',')[1] : res;
+                resolve(base64Part.replace(/\s/g, ''));
               };
               reader.readAsDataURL(finalBlob);
             });
@@ -174,6 +180,11 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
 
         const results = await Promise.all(attachmentPromises);
         attachments.push(...results.filter((r): r is { filename: string, content: string } => r !== null));
+      }
+
+      console.log(`[Email] Total attachments preparing to send: ${attachments.length}`);
+      if (attachments.length > 1) {
+        toast.success(`Sending ${attachments.length} attachments...`);
       }
 
       if (attachments.length === 0) {
