@@ -87,8 +87,6 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
     const email = window.prompt("Enter recipient email ID:");
     if (!email) return;
 
-    const useCombined = window.confirm("Send AS ONE SINGLE FILE (Recommended) ?\n\nClick OK for one combined file.\nClick Cancel for separate category files.");
-
     setEmailLoading(trip.id);
     try {
       // 1. Fetch expenses for the trip
@@ -105,139 +103,71 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
         return;
       }
 
+      // 2. Prepare groups
       const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
-      const attachments: { filename: string, content: string }[] = [];
+      
+      // 3. Generate and send PDFs one by one
+      let sentCount = 0;
+      for (const category of categories) {
+        const categoryExpenses = expenses.filter(e => e.category === category);
+        if (categoryExpenses.length === 0) continue;
 
-      if (useCombined) {
-        toast.loading("Generating combined report...", { duration: 2000 });
-        const masterParts: (ArrayBuffer | string)[] = [];
-        for (const category of categories) {
-          const catExpenses = expenses.filter(e => e.category === category);
-          if (catExpenses.length === 0) continue;
-          masterParts.push(await pdf(<TripSummaryPDF trip={trip} expenses={catExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
-          for (const exp of catExpenses) {
-            if (!exp.billImageUrl) continue;
-            if (exp.billImageUrl.startsWith('data:application/pdf')) {
-              masterParts.push(await pdf(<PDFExpenseDetailPagePDF expense={exp} />).toBlob().then(b => b.arrayBuffer()));
-              masterParts.push(exp.billImageUrl);
-            } else {
-              masterParts.push(await pdf(<ExpensePagePDF expense={exp} />).toBlob().then(b => b.arrayBuffer()));
-            }
+        // Collect all parts generation promises
+        const partPromises: Promise<ArrayBuffer | string>[] = [];
+        
+        // Summary page
+        partPromises.push(pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
+
+        // Expense details
+        for (const expense of categoryExpenses) {
+          if (!expense.billImageUrl) continue;
+
+          if (expense.billImageUrl.startsWith('data:application/pdf')) {
+            partPromises.push(pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
+            partPromises.push(Promise.resolve(expense.billImageUrl));
+          } else {
+            partPromises.push(pdf(<ExpensePagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
           }
         }
-        const finalBlob = await mergePDFs(masterParts);
-        console.log(`[Email] Combined PDF size: ${finalBlob.size} bytes`);
+
+        const parts = await Promise.all(partPromises);
+        const finalBlob = await mergePDFs(parts);
         
-        const base64 = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const res = reader.result as string;
-            // Robust base64 extraction
-            const base64Part = res.includes(',') ? res.split(',')[1] : res;
-            resolve(base64Part.replace(/\s/g, '')); // Remove any whitespace
-          };
-          reader.readAsDataURL(finalBlob);
-        });
-        attachments.push({ filename: `${dateStr} Full Report.pdf`, content: base64 });
-      } else {
-        const attachmentPromises = categories.map(async (category) => {
-          const categoryExpenses = expenses.filter(e => e.category === category);
-          if (categoryExpenses.length === 0) return null;
-
-          const partPromises: Promise<ArrayBuffer | string>[] = [];
-          partPromises.push(pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob().then(b => b.arrayBuffer()));
-
-          for (const expense of categoryExpenses) {
-            if (!expense.billImageUrl) continue;
-            if (expense.billImageUrl.startsWith('data:application/pdf')) {
-              partPromises.push(pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
-              partPromises.push(Promise.resolve(expense.billImageUrl));
-            } else {
-              partPromises.push(pdf(<ExpensePagePDF expense={expense} />).toBlob().then(b => b.arrayBuffer()));
-            }
-          }
-
-          const parts = await Promise.all(partPromises);
-          const finalBlob = await mergePDFs(parts);
-          console.log(`[Email] Category ${category} PDF size: ${finalBlob?.size} bytes`);
-          
-          if (finalBlob && finalBlob.size > 0) {
-            const base64Content = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const res = reader.result as string;
-                const base64Part = res.includes(',') ? res.split(',')[1] : res;
-                resolve(base64Part.replace(/\s/g, ''));
-              };
-              reader.readAsDataURL(finalBlob);
-            });
-
-            return { filename: `${dateStr} ${category}.pdf`, content: base64Content };
-          }
-          return null;
-        });
-
-        const results = await Promise.all(attachmentPromises);
-        attachments.push(...results.filter((r): r is { filename: string, content: string } => r !== null));
-      }
-
-      console.log(`[Email] Total reports generated: ${attachments.length}`);
-      
-      if (attachments.length === 0) {
-        toast.error("No reports generated.");
-        return;
-      }
-
-      // 6. Send emails sequentially
-      if (attachments.length > 1) {
-        toast.loading(`Sending ${attachments.length} separate emails for each category...`, { duration: 3000 });
-      } else {
-        toast.loading("Sending email...", { duration: 2000 });
-      }
-      
-      for (let i = 0; i < attachments.length; i++) {
-        const att = attachments[i];
-        try {
-          const isMultiple = attachments.length > 1;
-          const subject = isMultiple 
-            ? `Part ${i + 1}/${attachments.length} - ${att.filename} - ${trip.tripTitle}`
-            : `Expense Report - ${trip.tripTitle} - ${att.filename}`;
-
-          const body = isMultiple
-            ? `Trip: ${trip.tripTitle}\nCategory Report: ${att.filename}\n\nAttached is the expense report for this category. (Part ${i + 1} of ${attachments.length})`
-            : `Trip: ${trip.tripTitle}\n\nPlease find the attached expense report: ${att.filename}\nTotal Amount: ${formatCurrency(trip.totalAmount)}`;
-
-          const response = await axios.post('/api/send-email', {
-            to: email,
-            subject: subject,
-            body: body,
-            attachments: [att] // Single attachment per email
-          }, {
-            timeout: 120000
+        if (finalBlob && finalBlob.size > 0) {
+          const base64Content = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64data = reader.result as string;
+              resolve(base64data.split(',')[1]);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(finalBlob);
           });
 
-          if (response.data.success) {
-            if (isMultiple) {
-              toast.success(`Sent part ${i + 1}/${attachments.length}`);
-            } else {
-              toast.success("Email sent successfully!");
-            }
-          } else {
-            toast.error(`Failed to send email ${i + 1}: ${response.data.message}`);
-          }
-        } catch (err: any) {
-          console.error(`Error sending email ${i + 1}:`, err);
-          toast.error(`Error sending part ${i + 1}`);
-        }
-        
-        // Minor delay between emails if sending multiple
-        if (i < attachments.length - 1) {
-          await new Promise(r => setTimeout(r, 2000));
+          const attachment = {
+            filename: `${dateStr} ${category}.pdf`,
+            content: base64Content
+          };
+
+          // Send current category email
+          await axios.post('/api/send-email', {
+            to: email,
+            subject: `Expense Report (${category}): ${trip.tripTitle}`,
+            body: `Please find attached the ${category} expense report for the trip: ${trip.tripTitle}.`,
+            attachments: [attachment]
+          }, {
+            timeout: 60000 
+          });
+          sentCount++;
         }
       }
 
-      toast.success("Email process completed!");
+      if (sentCount === 0) {
+        toast.error("No reports generated.");
+      } else {
+        toast.success(`${sentCount} ${sentCount === 1 ? 'email' : 'emails'} sent successfully!`);
+      }
     } catch (error: any) {
       console.error("Email Error:", error);
       const errorMessage = error.response?.data?.message || error.message || "Failed to send email";
