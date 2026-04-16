@@ -39,7 +39,7 @@ service cloud.firestore {
       return data.keys().hasAll(['tripId', 'category', 'vendorName', 'amount', 'createdAt']) &&
              data.keys().hasOnly(allowedFields) &&
              data.tripId is string &&
-             data.category in ['Travel', 'Food', 'Hotel', 'Other'] &&
+             data.category in ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'] &&
              data.vendorName is string && data.vendorName.size() > 0 && data.vendorName.size() < 200 &&
              data.amount is number && data.amount >= 0 &&
              data.createdAt is number &&

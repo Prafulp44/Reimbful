@@ -16,6 +16,21 @@ export default function AddTripModal({ onClose }: AddTripModalProps) {
     endDate: '',
     notes: ''
   });
+  const [isEndDateModified, setIsEndDateModified] = useState(false);
+
+  const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newStartDate = e.target.value;
+    setFormData(prev => ({
+      ...prev,
+      startDate: newStartDate,
+      endDate: !isEndDateModified ? newStartDate : prev.endDate
+    }));
+  };
+
+  const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setIsEndDateModified(true);
+    setFormData({ ...formData, endDate: e.target.value });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +91,7 @@ export default function AddTripModal({ onClose }: AddTripModalProps) {
                   required
                   className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                   value={formData.startDate}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  onChange={handleStartDateChange}
                 />
               </div>
             </div>
@@ -89,7 +104,7 @@ export default function AddTripModal({ onClose }: AddTripModalProps) {
                   required
                   className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                   value={formData.endDate}
-                  onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  onChange={handleEndDateChange}
                 />
               </div>
             </div>

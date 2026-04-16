@@ -14,12 +14,14 @@ async function startServer() {
 
   // API Route for sending email
   app.post("/api/send-email", async (req, res) => {
-    const { to, subject, body, pdfBase64 } = req.body;
+    const { to, subject, body, attachments } = req.body;
     
-    // In a real production app, you would use SendGrid, Mailgun, or AWS SES here.
-    // Since we don't have those keys, we'll simulate success and log the attempt.
+    // Support legacy single attachment for compatibility
+    const pdfAttachments = attachments || (req.body.pdfBase64 ? [{ filename: 'report.pdf', content: req.body.pdfBase64 }] : []);
+
     console.log(`[Email Service] Sending email to: ${to}`);
     console.log(`[Email Service] Subject: ${subject}`);
+    console.log(`[Email Service] Attachments: ${pdfAttachments.length}`);
     
     // Simulate a delay
     await new Promise(resolve => setTimeout(resolve, 1000));

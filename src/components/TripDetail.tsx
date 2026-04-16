@@ -21,8 +21,9 @@ import {
   Calendar, 
   MapPin, 
   Utensils, 
-  Hotel, 
+  Building2, 
   MoreHorizontal,
+  Car,
   Loader2,
   Image as ImageIcon,
   Edit2
@@ -43,8 +44,9 @@ interface TripDetailProps {
 const categoryIcons = {
   Travel: <MapPin className="w-5 h-5 text-blue-600" />,
   Food: <Utensils className="w-5 h-5 text-orange-600" />,
-  Hotel: <Hotel className="w-5 h-5 text-purple-600" />,
-  Other: <MoreHorizontal className="w-5 h-5 text-neutral-600" />
+  Lodging: <Building2 className="w-5 h-5 text-purple-600" />,
+  Conveyance: <Car className="w-5 h-5 text-emerald-600" />,
+  Miscellaneous: <MoreHorizontal className="w-5 h-5 text-neutral-600" />
 };
 
 export default function TripDetail({ tripId, onBack }: TripDetailProps) {

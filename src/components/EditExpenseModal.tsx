@@ -12,7 +12,7 @@ interface EditExpenseModalProps {
   onClose: () => void;
 }
 
-const categories: ExpenseCategory[] = ['Travel', 'Food', 'Hotel', 'Other'];
+const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
 
 export default function EditExpenseModal({ expense, tripId, onClose }: EditExpenseModalProps) {
   const [loading, setLoading] = useState(false);
@@ -134,9 +134,10 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
 
   const getVendorLabel = () => {
     switch (formData.category) {
-      case 'Travel': return 'Travel Name (e.g. Uber, Indigo)';
+      case 'Travel': return 'Travel Name (e.g. Indigo, Uber)';
       case 'Food': return 'Restaurant Name';
-      case 'Hotel': return 'Hotel Name';
+      case 'Lodging': return 'Hotel Name';
+      case 'Conveyance': return 'Mode of Conveyance';
       default: return 'Vendor Name';
     }
   };
@@ -178,7 +179,7 @@ export default function EditExpenseModal({ expense, tripId, onClose }: EditExpen
               type="text"
               required
               className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-              placeholder="Enter name..."
+              placeholder={formData.category === 'Conveyance' ? "e.g. Auto, Bus, Train" : "Enter name..."}
               value={formData.vendorName}
               onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
             />

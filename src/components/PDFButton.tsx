@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Trip, Expense } from '../types';
+import { Trip, Expense, ExpenseCategory } from '../types';
 import { pdf } from '@react-pdf/renderer';
-import TripReportPDF, { TripSummaryPDF, ExpensePagePDF, PDFExpenseDetailPagePDF } from './TripReportPDF';
+import { TripSummaryPDF, ExpensePagePDF, PDFExpenseDetailPagePDF } from './TripReportPDF';
 import { FileText, Loader2 } from 'lucide-react';
 import { mergePDFs } from '../lib/pdfUtils';
 import toast from 'react-hot-toast';
 import { saveAs } from 'file-saver';
+import { format } from 'date-fns';
 
 interface PDFButtonProps {
   trip: Trip;
@@ -24,67 +25,53 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
       const q = query(
         collection(db, 'expenses'),
         where('tripId', '==', trip.id),
-        orderBy('createdAt', 'asc') // Changed to ascending for report flow
+        orderBy('createdAt', 'asc')
       );
       const snapshot = await getDocs(q);
-      const expenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense));
+      const allExpenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense));
 
-      // 2. Generate PDF Parts in Order
-      const parts: (ArrayBuffer | string)[] = [];
-      
-      // Part 1: Summary Page
-      const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={expenses} />).toBlob();
-      parts.push(await summaryBlob.arrayBuffer());
+      if (allExpenses.length === 0) {
+        toast.error("No expenses found for this trip.");
+        return;
+      }
 
-      // Parts 2+: Expenses in order
-      for (const expense of expenses) {
-        if (!expense.billImageUrl) continue;
+      // 2. Group expenses by category
+      const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
+      const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
 
-        if (expense.billImageUrl.startsWith('data:application/pdf')) {
-          // PDF Attachment - Add detail page first
-          const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
-          parts.push(await detailBlob.arrayBuffer());
-          
-          // Then add the PDF itself
-          parts.push(expense.billImageUrl);
-        } else {
-          // Image Attachment - Generate a page for it
-          const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
-          parts.push(await pageBlob.arrayBuffer());
+      for (const category of categories) {
+        const categoryExpenses = allExpenses.filter(e => e.category === category);
+        if (categoryExpenses.length === 0) continue;
+
+        // Generate PDF for this category
+        const parts: (ArrayBuffer | string)[] = [];
+        
+        // Part 1: Summary Page
+        const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob();
+        parts.push(await summaryBlob.arrayBuffer());
+
+        // Parts 2+: Expenses in category
+        for (const expense of categoryExpenses) {
+          if (!expense.billImageUrl) continue;
+
+          if (expense.billImageUrl.startsWith('data:application/pdf')) {
+            const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
+            parts.push(await detailBlob.arrayBuffer());
+            parts.push(expense.billImageUrl);
+          } else {
+            const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
+            parts.push(await pageBlob.arrayBuffer());
+          }
+        }
+
+        const finalBlob = await mergePDFs(parts);
+        if (finalBlob && finalBlob.size > 0) {
+          const fileName = `${dateStr} ${category}.pdf`;
+          saveAs(finalBlob, fileName);
         }
       }
 
-      // 3. Merge all parts
-      const finalBlob = await mergePDFs(parts);
-      
-      if (!finalBlob || finalBlob.size === 0) {
-        throw new Error("Generated PDF is empty");
-      }
-
-      // 4. Trigger Download
-      const fileName = `Reimbful_${trip.tripTitle.replace(/\s+/g, '_')}.pdf`;
-      
-      // For mobile/iframe reliability, we'll try saveAs first, 
-      // but also provide a fallback or use a more direct method if needed.
-      try {
-        console.log("Triggering download for blob size:", finalBlob.size);
-        saveAs(finalBlob, fileName);
-      } catch (saveError) {
-        console.error("saveAs failed, trying manual download:", saveError);
-        const url = URL.createObjectURL(finalBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = fileName;
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        setTimeout(() => {
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-        }, 100);
-      }
-
-      toast.success("PDF generated successfully!");
+      toast.success("PDFs generated and downloaded by category!");
     } catch (error) {
       console.error("Error generating PDF:", error);
       toast.error("Failed to generate PDF report.");

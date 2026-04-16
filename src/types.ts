@@ -1,4 +1,4 @@
-export type ExpenseCategory = 'Travel' | 'Food' | 'Hotel' | 'Other';
+export type ExpenseCategory = 'Travel' | 'Food' | 'Lodging' | 'Conveyance' | 'Miscellaneous';
 export type ReimbursementStatus = 'Pending' | 'Uploaded' | 'Paid';
 
 export interface UserProfile {

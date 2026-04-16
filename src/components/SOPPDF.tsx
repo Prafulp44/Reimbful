@@ -235,7 +235,7 @@ const SOPPDF = () => (
           <View style={styles.stepContent}>
             <Text style={styles.stepTitle}>Adding Expenses</Text>
             <Text style={styles.text}>
-              Click "View Details" on any trip card. Inside the trip view, click "Add Expense". Enter the category (Food, Travel, etc.), amount, and date. Most importantly, upload a photo or PDF of your bill.
+              Click "View Details" on any trip card. Inside the trip view, click "Add Expense". Enter the category (Travel, Food, Lodging, Conveyance, Miscellaneous), amount, and date. Most importantly, upload a photo or PDF of your bill.
             </Text>
             <ScreenshotPlaceholder 
               label="Trip Details View" 

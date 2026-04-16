@@ -107,25 +107,28 @@ const styles = StyleSheet.create({
 interface TripReportPDFProps {
   trip: Trip;
   expenses: Expense[];
+  category?: string;
 }
 
-export function TripSummaryPDF({ trip, expenses }: TripReportPDFProps) {
+export function TripSummaryPDF({ trip, expenses, category }: TripReportPDFProps) {
+  const categoryTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.title}>{trip.tripTitle}</Text>
+          <Text style={styles.title}>{trip.tripTitle}{category ? ` - ${category}` : ''}</Text>
           <Text style={styles.subtitle}>
             Date Range: {format(new Date(trip.startDate), 'MMM d, yyyy')} - {format(new Date(trip.endDate), 'MMM d, yyyy')}
           </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Expense Summary</Text>
+          <Text style={styles.sectionTitle}>{category ? `${category} ` : ''}Expense Summary</Text>
           <View style={styles.table}>
             <View style={[styles.tableRow, styles.tableHeader]}>
               <View style={styles.tableCol}><Text style={styles.tableCell}>Category</Text></View>
-              <View style={styles.tableCol}><Text style={styles.tableCell}>Vendor</Text></View>
+              <View style={styles.tableCol}><Text style={styles.tableCell}>{category === 'Conveyance' ? 'Mode' : 'Vendor'}</Text></View>
               <View style={styles.tableCol}><Text style={styles.tableCell}>Date</Text></View>
               <View style={styles.tableCol}><Text style={styles.tableCell}>Amount (INR)</Text></View>
             </View>
@@ -140,8 +143,8 @@ export function TripSummaryPDF({ trip, expenses }: TripReportPDFProps) {
           </View>
 
           <View style={styles.totalSection}>
-            <Text style={styles.totalLabel}>Total Reimbursement:</Text>
-            <Text style={styles.totalValue}>₹{trip.totalAmount.toLocaleString('en-IN')}</Text>
+            <Text style={styles.totalLabel}>{category ? `${category} ` : ''}Total:</Text>
+            <Text style={styles.totalValue}>₹{categoryTotal.toLocaleString('en-IN')}</Text>
           </View>
         </View>
 
@@ -161,7 +164,7 @@ export function ExpensePagePDF({ expense }: { expense: Expense }) {
     <Document>
       <Page size="A4" style={styles.imagePage}>
         <View style={{ width: '100%', borderBottomWidth: 1, borderBottomColor: '#E5E5E5', paddingBottom: 10, marginBottom: 15 }}>
-          <Text style={styles.sectionTitle}>Bill: {expense.vendorName} ({expense.category})</Text>
+          <Text style={styles.sectionTitle}>{expense.category === 'Conveyance' ? 'Mode' : 'Bill'}: {expense.vendorName} ({expense.category})</Text>
           <Text style={styles.subtitle}>Date: {format(new Date(expense.createdAt), 'MMM d, yyyy')}</Text>
         </View>
         
@@ -184,7 +187,7 @@ export function PDFExpenseDetailPagePDF({ expense }: { expense: Expense }) {
         <View style={styles.header}>
           <Text style={styles.title}>Expense Detail</Text>
           <Text style={styles.subtitle}>
-            Vendor: {expense.vendorName}
+            {expense.category === 'Conveyance' ? 'Mode' : 'Vendor'}: {expense.vendorName}
           </Text>
         </View>
 

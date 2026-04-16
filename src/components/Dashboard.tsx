@@ -11,7 +11,7 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { Trip, Expense, ReimbursementStatus } from '../types';
+import { Trip, Expense, ReimbursementStatus, ExpenseCategory } from '../types';
 import { Plus, Calendar, IndianRupee, Trash2, ChevronRight, FileText, Mail, Loader2, Edit2, Filter, ChevronDown, HelpCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatCurrency } from '../lib/utils';
@@ -98,51 +98,65 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
       const snapshot = await getDocs(q);
       const expenses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Expense));
 
-      // 2. Generate PDF Parts in Order
-      const parts: (ArrayBuffer | string)[] = [];
-      
-      // Part 1: Summary Page
-      const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={expenses} />).toBlob();
-      parts.push(await summaryBlob.arrayBuffer());
+      // 2. Group expenses by category
+      const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
+      const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
+      const attachments: { filename: string, content: string }[] = [];
 
-      // Parts 2+: Expenses in order
-      for (const expense of expenses) {
-        if (!expense.billImageUrl) continue;
+      for (const category of categories) {
+        const categoryExpenses = expenses.filter(e => e.category === category);
+        if (categoryExpenses.length === 0) continue;
 
-        if (expense.billImageUrl.startsWith('data:application/pdf')) {
-          // PDF Attachment - Add detail page first
-          const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
-          parts.push(await detailBlob.arrayBuffer());
+        const parts: (ArrayBuffer | string)[] = [];
+        
+        // Part 1: Summary Page
+        const summaryBlob = await pdf(<TripSummaryPDF trip={trip} expenses={categoryExpenses} category={category} />).toBlob();
+        parts.push(await summaryBlob.arrayBuffer());
+
+        // Parts 2+: Expenses in category
+        for (const expense of categoryExpenses) {
+          if (!expense.billImageUrl) continue;
+
+          if (expense.billImageUrl.startsWith('data:application/pdf')) {
+            const detailBlob = await pdf(<PDFExpenseDetailPagePDF expense={expense} />).toBlob();
+            parts.push(await detailBlob.arrayBuffer());
+            parts.push(expense.billImageUrl);
+          } else {
+            const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
+            parts.push(await pageBlob.arrayBuffer());
+          }
+        }
+
+        const finalBlob = await mergePDFs(parts);
+        if (finalBlob && finalBlob.size > 0) {
+          const base64Content = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64data = reader.result as string;
+              resolve(base64data.split(',')[1]);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(finalBlob);
+          });
           
-          // Then add the PDF itself
-          parts.push(expense.billImageUrl);
-        } else {
-          // Image Attachment - Generate a page for it
-          const pageBlob = await pdf(<ExpensePagePDF expense={expense} />).toBlob();
-          parts.push(await pageBlob.arrayBuffer());
+          attachments.push({
+            filename: `${dateStr} ${category}.pdf`,
+            content: base64Content
+          });
         }
       }
 
-      // 3. Merge all parts
-      const finalBlob = await mergePDFs(parts);
-      
-      // 4. Convert to base64 using a Promise
-      const base64Content = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64data = reader.result as string;
-          resolve(base64data.split(',')[1]);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(finalBlob);
-      });
+      if (attachments.length === 0) {
+        toast.error("No expenses found for this trip.");
+        return;
+      }
 
       // 6. Send to API with timeout
       const response = await axios.post('/api/send-email', {
         to: email,
         subject: `Expense Report: ${trip.tripTitle}`,
-        body: `Please find attached the expense report for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
-        pdfBase64: base64Content
+        body: `Please find attached the category-wise expense reports for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
+        attachments: attachments
       }, {
         timeout: 30000 // 30 seconds
       });
