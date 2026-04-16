@@ -12,7 +12,7 @@ import {
   increment
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Trip, Expense } from '../types';
+import { Trip, Expense, ExpenseCategory } from '../types';
 import { 
   ArrowLeft, 
   Plus, 
@@ -26,7 +26,8 @@ import {
   Car,
   Loader2,
   Image as ImageIcon,
-  Edit2
+  Edit2,
+  FileText
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatCurrency } from '../lib/utils';
@@ -134,13 +135,36 @@ export default function TripDetail({ tripId, onBack }: TripDetailProps) {
         </div>
       </div>
 
+      {/* Category Wise Downloads */}
+      <div className="bg-white rounded-3xl p-6 border border-neutral-100 shadow-sm">
+        <h4 className="text-sm font-bold text-neutral-900 mb-4 flex items-center gap-2">
+          <FileText className="w-4 h-4 text-orange-600" />
+          Download Category Reports
+        </h4>
+        <div className="flex flex-wrap gap-2">
+          {Object.keys(categoryIcons).map((cat) => {
+            const hasExpenses = expenses.some(e => e.category === cat);
+            if (!hasExpenses) return null;
+            return (
+              <div key={cat}>
+                <PDFButton 
+                  trip={trip as Trip} 
+                  variant="category" 
+                  specificCategory={cat as ExpenseCategory} 
+                  categoryLabel={cat}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex items-center justify-between gap-4">
         <h3 className="text-lg font-bold text-neutral-900">Expenses</h3>
         <div className="flex items-center gap-2">
-          <PDFButton trip={trip} variant="compact" />
           <button 
             onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-2 text-orange-600 font-bold text-sm hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-2 text-orange-600 font-bold text-sm hover:bg-orange-50 px-3 py-1.5 rounded-lg transition-colors border border-orange-100"
           >
             <Plus className="w-4 h-4" /> Add Expense
           </button>

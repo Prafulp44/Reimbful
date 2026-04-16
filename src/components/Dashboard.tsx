@@ -182,31 +182,62 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
         attachments.push(...results.filter((r): r is { filename: string, content: string } => r !== null));
       }
 
-      console.log(`[Email] Total attachments preparing to send: ${attachments.length}`);
-      if (attachments.length > 1) {
-        toast.success(`Sending ${attachments.length} attachments...`);
-      }
-
+      console.log(`[Email] Total reports generated: ${attachments.length}`);
+      
       if (attachments.length === 0) {
         toast.error("No reports generated.");
         return;
       }
 
-      // 6. Send to API with a VERY generous timeout for large attachments
-      const response = await axios.post('/api/send-email', {
-        to: email,
-        subject: `Expense Report: ${trip.tripTitle}`,
-        body: `Please find attached the category-wise expense reports for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
-        attachments: attachments
-      }, {
-        timeout: 120000 // 120 seconds for large multi-attachment payloads
-      });
-
-      if (response.data.success) {
-        toast.success("Email sent successfully!");
+      // 6. Send emails sequentially
+      if (attachments.length > 1) {
+        toast.loading(`Sending ${attachments.length} separate emails for each category...`, { duration: 3000 });
       } else {
-        toast.error(response.data.message || "Failed to send email");
+        toast.loading("Sending email...", { duration: 2000 });
       }
+      
+      for (let i = 0; i < attachments.length; i++) {
+        const att = attachments[i];
+        try {
+          const isMultiple = attachments.length > 1;
+          const subject = isMultiple 
+            ? `Part ${i + 1}/${attachments.length} - ${att.filename} - ${trip.tripTitle}`
+            : `Expense Report - ${trip.tripTitle} - ${att.filename}`;
+
+          const body = isMultiple
+            ? `Trip: ${trip.tripTitle}\nCategory Report: ${att.filename}\n\nAttached is the expense report for this category. (Part ${i + 1} of ${attachments.length})`
+            : `Trip: ${trip.tripTitle}\n\nPlease find the attached expense report: ${att.filename}\nTotal Amount: ${formatCurrency(trip.totalAmount)}`;
+
+          const response = await axios.post('/api/send-email', {
+            to: email,
+            subject: subject,
+            body: body,
+            attachments: [att] // Single attachment per email
+          }, {
+            timeout: 120000
+          });
+
+          if (response.data.success) {
+            if (isMultiple) {
+              toast.success(`Sent part ${i + 1}/${attachments.length}`);
+            } else {
+              toast.success("Email sent successfully!");
+            }
+          } else {
+            toast.error(`Failed to send email ${i + 1}: ${response.data.message}`);
+          }
+        } catch (err: any) {
+          console.error(`Error sending email ${i + 1}:`, err);
+          toast.error(`Error sending part ${i + 1}`);
+        }
+        
+        // Minor delay between emails if sending multiple
+        if (i < attachments.length - 1) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+
+      toast.success("Email process completed!");
     } catch (error: any) {
       console.error("Email Error:", error);
       const errorMessage = error.response?.data?.message || error.message || "Failed to send email";
@@ -389,7 +420,6 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
                 </div>
 
                 <div className="flex gap-2">
-                  <PDFButton trip={trip} />
                   <button 
                     onClick={() => handleSendEmail(trip)}
                     disabled={emailLoading === trip.id}

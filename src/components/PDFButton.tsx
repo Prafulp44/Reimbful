@@ -12,10 +12,12 @@ import { format } from 'date-fns';
 
 interface PDFButtonProps {
   trip: Trip;
-  variant?: 'full' | 'compact';
+  variant?: 'full' | 'compact' | 'category';
+  specificCategory?: ExpenseCategory;
+  categoryLabel?: string;
 }
 
-export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
+export default function PDFButton({ trip, variant = 'full', specificCategory, categoryLabel }: PDFButtonProps) {
   const [loading, setLoading] = useState(false);
 
   const handleDownload = async (isCombined: boolean = false) => {
@@ -35,11 +37,13 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
         return;
       }
 
-      const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
+      const categories: ExpenseCategory[] = specificCategory 
+        ? [specificCategory] 
+        : ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
+      
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
 
-      if (isCombined) {
-        // GENERATE ONE SINGLE MERGED PDF FOR ALL CATEGORIES
+      if (isCombined && !specificCategory) {
         toast.loading("Merging all categories into one report...", { duration: 2000 });
         const masterParts: (ArrayBuffer | string)[] = [];
 
@@ -178,6 +182,18 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
       setLoading(false);
     }
   };
+
+  if (variant === 'category') {
+    return (
+      <button 
+        onClick={() => handleDownload(false)}
+        disabled={loading}
+        className="flex items-center gap-2 text-orange-600 font-bold text-xs bg-orange-50 hover:bg-orange-100 px-3 py-2 rounded-xl transition-all disabled:opacity-70 whitespace-nowrap"
+      >
+        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <><FileText className="w-3 h-3" /> {categoryLabel || specificCategory} Bills</>}
+      </button>
+    );
+  }
 
   if (variant === 'compact') {
     return (
