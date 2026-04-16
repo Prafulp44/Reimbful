@@ -17,6 +17,7 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // API Route for sending email
   app.post("/api/send-email", async (req, res) => {
@@ -35,39 +36,57 @@ async function startServer() {
     }
 
     try {
-      console.log(`[Email Service] Sending via Resend API to: ${to}`);
-      console.log(`[Email Service] Attachment filenames: ${pdfAttachments.map((a: any) => a.filename).join(', ')}`);
+      if (!resend) throw new Error("Resend instance target missing");
       
-      const resendResponse = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        },
-        body: JSON.stringify({
-          from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
-          to: [to],
-          subject: subject,
-          text: body,
-          attachments: pdfAttachments.map((att: any) => ({
-            filename: att.filename,
-            content: att.content,
-          })),
-        }),
+      console.log(`[Email Service] Sending via Resend SDK to: ${to}`);
+      console.log(`[Email Service] Attachment count: ${pdfAttachments.length}`);
+
+      const attachmentPayload = pdfAttachments.map((att: any) => {
+        if (!att.content) {
+          console.error(`[Email Service] Attachment ${att.filename} has NO content`);
+        }
+        return {
+          filename: att.filename,
+          content: Buffer.from(att.content, 'base64'),
+        };
       });
 
-      const data = await resendResponse.json();
+      const { data, error } = await resend.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+        to: [to],
+        subject: subject,
+        text: body,
+        attachments: attachmentPayload,
+      });
 
-      if (!resendResponse.ok) {
-        console.error("[Resend API Error]:", data);
-        return res.status(resendResponse.status).json({ success: false, message: data.message || "Resend API error" });
+      if (error) {
+        console.error("[Resend SDK Error]:", error);
+        return res.status(400).json({ success: false, message: error.message });
       }
 
-      console.log("[Email Service] Email sent via Resend API:", data.id);
-      res.json({ success: true, message: "Email sent successfully via Resend", id: data.id });
+      console.log("[Email Service] Email sent successfully via SDK. ID:", data?.id);
+      res.json({ success: true, message: "Email sent successfully via Resend", id: data?.id });
     } catch (err: any) {
       console.error("[Email Service Exception]:", err);
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Proxy route for mobile downloads to bypass iframe/blob issues
+  app.post("/api/download-pdf", (req, res) => {
+    const { filename, content } = req.body;
+    if (!filename || !content) {
+      return res.status(400).send("Missing filename or content");
+    }
+
+    try {
+      const buffer = Buffer.from(content, 'base64');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', buffer.length);
+      res.end(buffer);
+    } catch (error) {
+      res.status(500).send("Download failed");
     }
   });
 

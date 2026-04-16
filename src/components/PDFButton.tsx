@@ -66,7 +66,29 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
         const finalMasterBlob = await mergePDFs(masterParts);
         if (finalMasterBlob && finalMasterBlob.size > 0) {
           const fileName = `${dateStr} Complete Report.pdf`;
-          saveAs(finalMasterBlob, fileName);
+          
+          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          if (isMobile) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = (reader.result as string).split(',')[1];
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = '/api/download-pdf';
+              
+              const fn = document.createElement('input'); fn.type = 'hidden'; fn.name = 'filename'; fn.value = fileName;
+              const content = document.createElement('input'); content.type = 'hidden'; content.name = 'content'; content.value = base64;
+              
+              form.appendChild(fn); form.appendChild(content);
+              document.body.appendChild(form);
+              form.submit();
+              document.body.removeChild(form);
+            };
+            reader.readAsDataURL(finalMasterBlob);
+          } else {
+            saveAs(finalMasterBlob, fileName);
+          }
+          
           toast.success("Complete report downloaded!");
         }
         return;
@@ -105,18 +127,41 @@ export default function PDFButton({ trip, variant = 'full' }: PDFButtonProps) {
           await new Promise(resolve => setTimeout(resolve, index * 800));
 
           try {
-            // Standard saving
-            saveAs(finalBlob, fileName);
+            // Check if on mobile to use proxy (more reliable for iframes)
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+              const reader = new FileReader();
+              reader.onloadend = async () => {
+                const base64Content = (reader.result as string).split(',')[1];
+                
+                // Create a temporary form to trigger a real POST download
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/api/download-pdf';
+                
+                const fnInput = document.createElement('input');
+                fnInput.type = 'hidden';
+                fnInput.name = 'filename';
+                fnInput.value = fileName;
+                
+                const cInput = document.createElement('input');
+                cInput.type = 'hidden';
+                cInput.name = 'content';
+                cInput.value = base64Content;
+                
+                form.appendChild(fnInput);
+                form.appendChild(cInput);
+                document.body.appendChild(form);
+                form.submit();
+                document.body.removeChild(form);
+              };
+              reader.readAsDataURL(finalBlob);
+            } else {
+              saveAs(finalBlob, fileName);
+            }
           } catch (saveError) {
-            // Mobile fallback
-            const url = URL.createObjectURL(finalBlob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            saveAs(finalBlob, fileName);
           }
         }
       });

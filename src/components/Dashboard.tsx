@@ -87,7 +87,7 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
     const email = window.prompt("Enter recipient email ID:");
     if (!email) return;
 
-    const useCombined = window.confirm("Would you like to send ONE combined report instead of separate files? (Recommended for mobile/large trips)");
+    const useCombined = window.confirm("Send AS ONE SINGLE FILE (Recommended) ?\n\nClick OK for one combined file.\nClick Cancel for separate category files.");
 
     setEmailLoading(trip.id);
     try {
@@ -129,12 +129,14 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
         const finalBlob = await mergePDFs(masterParts);
         const base64 = await new Promise<string>((resolve) => {
           const reader = new FileReader();
-          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+          reader.onloadend = () => {
+            const res = reader.result as string;
+            resolve(res.includes(',') ? res.split(',')[1] : res);
+          };
           reader.readAsDataURL(finalBlob);
         });
         attachments.push({ filename: `${dateStr} Full Report.pdf`, content: base64 });
       } else {
-        // 3. Generate PDFs in parallel for all categories (Split)
         const attachmentPromises = categories.map(async (category) => {
           const categoryExpenses = expenses.filter(e => e.category === category);
           if (categoryExpenses.length === 0) return null;
@@ -158,7 +160,10 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
           if (finalBlob && finalBlob.size > 0) {
             const base64Content = await new Promise<string>((resolve) => {
               const reader = new FileReader();
-              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.onloadend = () => {
+                const res = reader.result as string;
+                resolve(res.includes(',') ? res.split(',')[1] : res);
+              };
               reader.readAsDataURL(finalBlob);
             });
 
