@@ -107,11 +107,11 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
       const categories: ExpenseCategory[] = ['Travel', 'Food', 'Lodging', 'Conveyance', 'Miscellaneous'];
       const dateStr = format(new Date(trip.startDate), 'ddMMyyyy');
       
-      // 3. Generate and send PDFs one by one
-      let sentCount = 0;
-      for (const category of categories) {
+      // 3. Generate all category PDFs
+      const attachments: { filename: string, content: string }[] = [];
+      const generationPromises = categories.map(async (category) => {
         const categoryExpenses = expenses.filter(e => e.category === category);
-        if (categoryExpenses.length === 0) continue;
+        if (categoryExpenses.length === 0) return;
 
         // Collect all parts generation promises
         const partPromises: Promise<ArrayBuffer | string>[] = [];
@@ -145,28 +145,34 @@ export default function Dashboard({ onViewTrip }: DashboardProps) {
             reader.readAsDataURL(finalBlob);
           });
 
-          const attachment = {
+          attachments.push({
             filename: `${dateStr} ${category}.pdf`,
             content: base64Content
-          };
-
-          // Send current category email
-          await axios.post('/api/send-email', {
-            to: email,
-            subject: `Expense Report (${category}): ${trip.tripTitle}`,
-            body: `Please find attached the ${category} expense report for the trip: ${trip.tripTitle}.`,
-            attachments: [attachment]
-          }, {
-            timeout: 60000 
           });
-          sentCount++;
         }
+      });
+
+      await Promise.all(generationPromises);
+
+      if (attachments.length === 0) {
+        toast.error("No reports generated.");
+        return;
       }
 
-      if (sentCount === 0) {
-        toast.error("No reports generated.");
+      // 4. Send a single email with all attachments
+      const response = await axios.post('/api/send-email', {
+        to: email,
+        subject: `Expense Report: ${trip.tripTitle}`,
+        body: `Please find attached the category-wise expense reports for the trip: ${trip.tripTitle} (${trip.startDate} to ${trip.endDate}). Total Amount: ${formatCurrency(trip.totalAmount)}`,
+        attachments: attachments
+      }, {
+        timeout: 120000 // 120 seconds for large multi-attachment payloads
+      });
+
+      if (response.data.success) {
+        toast.success("Email sent successfully with all attachments!");
       } else {
-        toast.success(`${sentCount} ${sentCount === 1 ? 'email' : 'emails'} sent successfully!`);
+        toast.error(response.data.message || "Failed to send email");
       }
     } catch (error: any) {
       console.error("Email Error:", error);
