@@ -17,7 +17,7 @@ const transporter = process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD
 
 // Handle both /api/send-email and /send-email due to Vercel rewrite variations
 const emailHandler = async (req: any, res: any) => {
-  const { to, subject, body, pdfBase64 } = req.body;
+  const { to, subject, body, attachments, pdfBase64 } = req.body;
   
   if (!transporter) {
     console.error("[Vercel API] Gmail credentials are not configured.");
@@ -26,6 +26,11 @@ const emailHandler = async (req: any, res: any) => {
       message: "Email service not configured. Please add GMAIL_USER and GMAIL_APP_PASSWORD to environment variables." 
     });
   }
+
+  // Normalize attachments
+  const pdfAttachments =
+    attachments ||
+    (pdfBase64 ? [{ filename: "Expense_Report.pdf", content: pdfBase64 }] : []);
 
   // Check payload size (Vercel limit is 4.5MB)
   const payloadSize = Buffer.byteLength(JSON.stringify(req.body));
@@ -44,13 +49,11 @@ const emailHandler = async (req: any, res: any) => {
       to: to,
       subject: subject,
       text: body,
-      attachments: [
-        {
-          filename: 'Expense_Report.pdf',
-          content: pdfBase64,
-          encoding: 'base64'
-        },
-      ],
+      attachments: pdfAttachments.map((att: any) => ({
+        filename: att.filename,
+        content: Buffer.from(att.content, 'base64'),
+        contentType: 'application/pdf'
+      })),
     };
 
     const info = await transporter.sendMail(mailOptions);

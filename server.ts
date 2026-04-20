@@ -2,6 +2,10 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,23 +14,55 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: "50mb" }));
+
+  // Initialize Nodemailer
+  const transporter =
+    process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD
+      ? nodemailer.createTransport({
+          service: "gmail",
+          auth: {
+            user: process.env.GMAIL_USER,
+            pass: process.env.GMAIL_APP_PASSWORD,
+          },
+        })
+      : null;
 
   // API Route for sending email
   app.post("/api/send-email", async (req, res) => {
-    const { to, subject, body, attachments } = req.body;
-    
-    // Support legacy single attachment for compatibility
-    const pdfAttachments = attachments || (req.body.pdfBase64 ? [{ filename: 'report.pdf', content: req.body.pdfBase64 }] : []);
+    const { to, subject, body, attachments, pdfBase64 } = req.body;
 
-    console.log(`[Email Service] Sending email to: ${to}`);
-    console.log(`[Email Service] Subject: ${subject}`);
-    console.log(`[Email Service] Attachments: ${pdfAttachments.length}`);
-    
-    // Simulate a delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Normalize attachments
+    const pdfAttachments =
+      attachments ||
+      (pdfBase64 ? [{ filename: "Expense_Report.pdf", content: pdfBase64 }] : []);
 
-    res.json({ success: true, message: "Email sent successfully (simulated)" });
+    if (!transporter) {
+      console.warn("[Email Service] Gmail credentials not configured. Mocking success.");
+      return res.json({ success: true, message: "Email sent successfully (simulated/mock)" });
+    }
+
+    try {
+      console.log(`[Email Service] Sending real email to: ${to}`);
+
+      const mailOptions = {
+        from: `"Reimbful" <${process.env.GMAIL_USER}>`,
+        to,
+        subject,
+        text: body,
+        attachments: pdfAttachments.map((att: any) => ({
+          filename: att.filename,
+          content: Buffer.from(att.content, "base64"),
+          contentType: "application/pdf",
+        })),
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.json({ success: true, message: "Email sent successfully!" });
+    } catch (error: any) {
+      console.error("[Email Service] Error:", error);
+      res.status(500).json({ success: false, message: error.message || "Failed to send email" });
+    }
   });
 
   // Vite middleware for development
