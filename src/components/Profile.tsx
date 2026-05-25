@@ -93,7 +93,11 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
       toast.success("Profile updated successfully!");
       setFormData({ ...formData, currentPassword: '', newPassword: '' });
     } catch (error: any) {
-      toast.error(error.message);
+      if (error.code === 'auth/too-many-requests' || error.message?.includes('too-many-requests')) {
+        toast.error("Profile updates are temporarily restricted due to rapid modifications. Please wait a few minutes before trying again.", { duration: 8000 });
+      } else {
+        toast.error(error.message);
+      }
     } finally {
       setLoading(false);
     }

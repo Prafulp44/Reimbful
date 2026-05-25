@@ -145,7 +145,11 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
       setIsForgotPassword(false);
     } catch (error: any) {
       console.warn("Forgot Password Warning:", error?.message || error);
-      toast.error(error.message || 'Failed to send reset email');
+      if (error.code === 'auth/too-many-requests' || error.message?.includes('too-many-requests')) {
+        toast.error("We have detected too many reset link requests. Please wait a few minutes before trying again to protect account security.", { duration: 8000 });
+      } else {
+        toast.error(error.message || 'Failed to send reset email');
+      }
     } finally {
       setLoading(false);
     }
@@ -243,7 +247,9 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
         "Username already taken",
         "Email address is required",
         "User profile not found",
-        "Legacy account"
+        "Legacy account",
+        "too-many-requests",
+        "auth/too-many-requests"
       ].some(msg => errorMsg.includes(msg));
 
       if (isKnownUserError || (error && error.code && [
@@ -253,7 +259,8 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
         'auth/email-already-in-use',
         'auth/weak-password',
         'auth/invalid-email',
-        'auth/operation-not-allowed'
+        'auth/operation-not-allowed',
+        'auth/too-many-requests'
       ].includes(error.code))) {
         console.warn("Auth check warning:", error.code || error.message);
       } else {
@@ -284,6 +291,11 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
         toast.error("Password is too weak. Firebase requires passwords to be at least 6 characters long.");
       } else if (error.code === 'auth/invalid-email') {
         toast.error("Please enter a valid, correctly formatted email address.");
+      } else if (error.code === 'auth/too-many-requests' || error.message?.includes('too-many-requests')) {
+        toast.error(
+          "Too many authentication attempts detected. To protect your account, this action has been temporarily blocked. Please wait a few minutes before trying again, or switch network connections.",
+          { duration: 8000 }
+        );
       } else {
         toast.error(error.message || "An unexpected authentication error occurred.");
       }
