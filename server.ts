@@ -4,11 +4,41 @@ import path from "path";
 import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
+import fs from "fs";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize Firebase Admin SDK
+let projectId = "my-reimbful-project";
+let databaseId = "";
+try {
+  const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(configPath)) {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (config.projectId) {
+      projectId = config.projectId;
+    }
+    if (config.firestoreDatabaseId) {
+      databaseId = config.firestoreDatabaseId;
+    }
+  }
+} catch (e) {
+  console.warn("Failed to read firebase-applet-config.json, using default:", e);
+}
+
+try {
+  admin.initializeApp({
+    projectId: projectId,
+  });
+  console.log(`[Firebase Admin] Initialized successfully with project ID: ${projectId}, Database ID: ${databaseId || "(default)"}`);
+} catch (error) {
+  console.error("[Firebase Admin] Initialization failed:", error);
+}
 
 async function startServer() {
   const app = express();
@@ -27,6 +57,73 @@ async function startServer() {
           },
         })
       : null;
+
+  // Administrative Bypass Route for Legacy Account Recovery
+  app.post("/api/admin/recover-user", async (req, res) => {
+    const { username, newEmail, newPassword, adminKey } = req.body;
+
+    const configuredKey = process.env.ADMIN_RECOVERY_KEY || "admin123";
+    if (!adminKey || adminKey !== configuredKey) {
+      return res.status(401).json({ success: false, message: "Unauthorized: Invalid administrative recovery key." });
+    }
+
+    if (!username || !newEmail) {
+      return res.status(400).json({ success: false, message: "Bad Request: username and newEmail are required." });
+    }
+
+    try {
+      const dbAdmin = databaseId ? getFirestore(databaseId) : getFirestore();
+      
+      // 1. Look up UID from usernames map
+      const usernameDocRef = dbAdmin.collection("usernames").doc(username.toLowerCase().trim());
+      const usernameSnap = await usernameDocRef.get();
+
+      if (!usernameSnap.exists) {
+        return res.status(404).json({ success: false, message: `Username "${username}" not found.` });
+      }
+
+      const uid = usernameSnap.data()?.uid;
+      if (!uid) {
+        return res.status(500).json({ success: false, message: "Inconsistent database state: UID translation failed." });
+      }
+
+      // 2. Fetch original user profile
+      const userDocRef = dbAdmin.collection("users").doc(uid);
+      const userSnap = await userDocRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ success: false, message: `User profile document with UID "${uid}" not found.` });
+      }
+
+      // 3. Update Firebase Authentication
+      const updateData: any = {
+        email: newEmail.toLowerCase().trim()
+      };
+      if (newPassword) {
+        updateData.password = newPassword;
+      }
+      
+      await admin.auth().updateUser(uid, updateData);
+
+      // 4. Update recoveryEmail in Firestore users profile doc
+      await userDocRef.update({
+        recoveryEmail: newEmail.toLowerCase().trim()
+      });
+
+      console.log(`[Admin Recovery] Successfully updated user UID ${uid} (${username}) with recovery email ${newEmail}`);
+
+      return res.json({ 
+        success: true, 
+        message: `Account recovery successful! Updated credentials for "${username}" to recovery email "${newEmail}".`
+      });
+
+    } catch (error: any) {
+      console.error("[Admin Recovery Service] Error during account rescue:", error);
+      return res.status(500).json({ 
+        success: false, 
+        message: error.message || "An unexpected database or credentials mutation error occurred." 
+      });
+    }
+  });
 
   // API Route for sending email
   app.post("/api/send-email", async (req, res) => {

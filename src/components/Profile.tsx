@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { 
   updateProfile, 
   updatePassword,
+  updateEmail,
   reauthenticateWithCredential,
   EmailAuthProvider
 } from 'firebase/auth';
 import { doc, updateDoc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { UserProfile } from '../types';
-import { ArrowLeft, User, AtSign, Lock, Loader2, Save, Eye, EyeOff, HelpCircle } from 'lucide-react';
+import { ArrowLeft, User, AtSign, Lock, Loader2, Save, Eye, EyeOff, HelpCircle, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { pdf } from '@react-pdf/renderer';
 import SOPPDF from './SOPPDF';
@@ -27,6 +28,7 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
   const [formData, setFormData] = useState({
     name: profile.name,
     username: profile.username,
+    recoveryEmail: profile.recoveryEmail || '',
     newPassword: '',
     currentPassword: ''
   });
@@ -37,10 +39,12 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
 
     setLoading(true);
     try {
-      // 1. Re-authenticate if password change is requested
-      if (formData.newPassword || formData.username !== profile.username) {
+      const emailChanged = formData.recoveryEmail.toLowerCase().trim() !== (profile.recoveryEmail || '').toLowerCase().trim();
+
+      // 1. Re-authenticate if password change, username change, or recovery email change is requested
+      if (formData.newPassword || formData.username !== profile.username || emailChanged) {
         if (!formData.currentPassword) {
-          throw new Error("Current password is required for security changes.");
+          throw new Error("Current password is required to save sensitive security changes (e.g., username, password, or recovery email).");
         }
         const credential = EmailAuthProvider.credential(auth.currentUser.email!, formData.currentPassword);
         await reauthenticateWithCredential(auth.currentUser, credential);
@@ -59,7 +63,16 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
         await setDoc(newUsernameRef, { uid: auth.currentUser.uid });
       }
 
-      // 3. Update Auth Profile & Password
+      // 3. Update Auth Email if changed
+      if (emailChanged) {
+        const newEmail = formData.recoveryEmail.toLowerCase().trim();
+        if (!newEmail) {
+          throw new Error("A valid recovery email address is required.");
+        }
+        await updateEmail(auth.currentUser, newEmail);
+      }
+
+      // 4. Update Auth Profile & Password
       if (formData.name !== profile.name) {
         await updateProfile(auth.currentUser, { displayName: formData.name });
       }
@@ -67,13 +80,14 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
         await updatePassword(auth.currentUser, formData.newPassword);
       }
 
-      // 4. Update Firestore Profile
-      const updatedProfile = {
+      // 5. Update Firestore Profile
+      const updatedProfile: UserProfile = {
         ...profile,
         name: formData.name,
-        username: formData.username.toLowerCase()
+        username: formData.username.toLowerCase(),
+        recoveryEmail: formData.recoveryEmail.toLowerCase().trim()
       };
-      await updateDoc(doc(db, 'users', auth.currentUser.uid), updatedProfile);
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), updatedProfile as any);
 
       onUpdate(updatedProfile);
       toast.success("Profile updated successfully!");
@@ -96,6 +110,8 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
       toast.error("Failed to generate SOP", { id: loadingToast });
     }
   };
+
+  const isLegacyUser = auth.currentUser?.email?.endsWith('@reimbful.com');
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -148,6 +164,31 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm font-semibold text-neutral-700 mb-1">Recovery Email Address</label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+              <input
+                type="email"
+                required
+                className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                placeholder="you@example.com"
+                value={formData.recoveryEmail}
+                onChange={(e) => setFormData({ ...formData, recoveryEmail: e.target.value })}
+              />
+            </div>
+            {isLegacyUser && !profile.recoveryEmail && (
+              <p className="mt-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3 animate-pulse">
+                ⚠️ **Legacy Account Action Needed:** You are logged in with a dummy username@reimbful.com email. Please specify your real email above and save changes so that Forgot Password / Password Reset functions can reach you!
+              </p>
+            )}
+            {!isLegacyUser && (
+              <p className="mt-1 text-xs text-neutral-400">
+                This email is where we send account verification and password reset links.
+              </p>
+            )}
+          </div>
+
           <div className="pt-4 border-t border-neutral-100">
             <h3 className="text-sm font-bold text-neutral-400 uppercase tracking-wider mb-4">Security</h3>
             
@@ -179,7 +220,11 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
                   <input
                     type={showCurrentPassword ? "text" : "password"}
-                    required={formData.newPassword !== '' || formData.username !== profile.username}
+                    required={
+                      formData.newPassword !== '' || 
+                      formData.username !== profile.username || 
+                      formData.recoveryEmail.toLowerCase().trim() !== (profile.recoveryEmail || '').toLowerCase().trim()
+                    }
                     className="w-full pl-10 pr-12 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                     placeholder="Required for sensitive changes"
                     value={formData.currentPassword}

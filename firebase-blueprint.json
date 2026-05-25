@@ -2,12 +2,13 @@
   "entities": {
     "UserProfile": {
       "title": "User Profile",
-      "description": "User profile data including unique username.",
+      "description": "User profile data including unique username and optional recovery email.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
         "username": { "type": "string" },
+        "recoveryEmail": { "type": "string" },
         "createdAt": { "type": "number" }
       },
       "required": ["id", "name", "username", "createdAt"]

@@ -19,7 +19,8 @@ service cloud.firestore {
              data.id is string && data.id == request.auth.uid &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.username is string && data.username.size() >= 3 && data.username.size() <= 20 &&
-             data.createdAt is number;
+             data.createdAt is number &&
+             (!('recoveryEmail' in data) || (data.recoveryEmail is string && data.recoveryEmail.size() >= 3 && data.recoveryEmail.size() <= 254));
     }
 
     function isValidTrip(data) {
@@ -49,7 +50,8 @@ service cloud.firestore {
 
     // User Profiles
     match /users/{userId} {
-      allow read: if isOwner(userId);
+      allow get: if true; // Allow looking up specific user profile by UID to retrieve recovery email for login/forgot-password
+      allow list: if false; // Block listing/querying the whole users collection
       allow create: if isOwner(userId) && isValidUserProfile(request.resource.data);
       allow update: if isOwner(userId) && isValidUserProfile(request.resource.data);
     }
