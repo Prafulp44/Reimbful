@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { 
   updateProfile, 
   updatePassword,
-  updateEmail,
   reauthenticateWithCredential,
-  EmailAuthProvider
+  EmailAuthProvider,
+  updateEmail,
+  verifyBeforeUpdateEmail
 } from 'firebase/auth';
 import { doc, updateDoc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -39,65 +40,94 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
 
     setLoading(true);
     try {
-      const emailChanged = formData.recoveryEmail.toLowerCase().trim() !== (profile.recoveryEmail || '').toLowerCase().trim();
+      const isEmailChanged = formData.recoveryEmail.trim().toLowerCase() !== (profile.recoveryEmail || '').trim().toLowerCase();
 
       // 1. Re-authenticate if password change, username change, or recovery email change is requested
-      if (formData.newPassword || formData.username !== profile.username || emailChanged) {
+      if (formData.newPassword || formData.username !== profile.username || isEmailChanged) {
         if (!formData.currentPassword) {
-          throw new Error("Current password is required to save sensitive security changes (e.g., username, password, or recovery email).");
+          throw new Error("Current password is required for security changes.");
         }
-        const credential = EmailAuthProvider.credential(auth.currentUser.email!, formData.currentPassword);
+        const reauthEmail = auth.currentUser.email || profile.recoveryEmail || `${profile.username.toLowerCase().trim()}@reimbful.com`;
+        const credential = EmailAuthProvider.credential(reauthEmail, formData.currentPassword);
         await reauthenticateWithCredential(auth.currentUser, credential);
       }
 
-      // 2. Handle Username Change
+      // 2. Handle Username Change and Recovery Email mapping update
       if (formData.username !== profile.username) {
-        const newUsernameRef = doc(db, 'usernames', formData.username.toLowerCase());
+        const newUsernameRef = doc(db, 'usernames', formData.username.toLowerCase().trim());
         const newUsernameSnap = await getDoc(newUsernameRef);
         if (newUsernameSnap.exists()) {
           throw new Error("Username already taken");
         }
 
-        // Delete old mapping, create new one
-        await deleteDoc(doc(db, 'usernames', profile.username.toLowerCase()));
-        await setDoc(newUsernameRef, { uid: auth.currentUser.uid });
+        // Delete old mapping, create new one with recovery email
+        await deleteDoc(doc(db, 'usernames', profile.username.toLowerCase().trim()));
+        await setDoc(newUsernameRef, { 
+          uid: auth.currentUser.uid,
+          recoveryEmail: formData.recoveryEmail.toLowerCase().trim(),
+          authEmail: auth.currentUser.email
+        });
       }
 
-      // 3. Update Auth Email if changed
-      if (emailChanged) {
-        const newEmail = formData.recoveryEmail.toLowerCase().trim();
-        if (!newEmail) {
-          throw new Error("A valid recovery email address is required.");
-        }
-        await updateEmail(auth.currentUser, newEmail);
-      }
-
-      // 4. Update Auth Profile & Password
+      // 3. Update Auth Profile, Auth Email & Password
       if (formData.name !== profile.name) {
         await updateProfile(auth.currentUser, { displayName: formData.name });
       }
+
+      let emailVerificationSent = false;
+      if (isEmailChanged) {
+        const newEmail = formData.recoveryEmail.toLowerCase().trim();
+        try {
+          // Try standard updateEmail first
+          await updateEmail(auth.currentUser, newEmail);
+          
+          // If direct update succeeds, update active authEmail in usernames mapping
+          const usernameRef = doc(db, 'usernames', formData.username.toLowerCase().trim());
+          await updateDoc(usernameRef, { 
+            recoveryEmail: newEmail,
+            authEmail: newEmail
+          });
+        } catch (emailErr: any) {
+          console.warn("Direct updateEmail failed, falling back to verifyBeforeUpdateEmail:", emailErr);
+          if (emailErr.code === 'auth/operation-not-allowed' || emailErr.message?.includes('verify') || emailErr.code?.includes('verified') || emailErr.message?.includes('operation-not-allowed')) {
+            // Fallback to verifyBeforeUpdateEmail
+            await verifyBeforeUpdateEmail(auth.currentUser, newEmail);
+            emailVerificationSent = true;
+            // Save recoveryEmail and pendingEmail, keep authEmail active for current session login
+            const usernameRef = doc(db, 'usernames', formData.username.toLowerCase().trim());
+            await updateDoc(usernameRef, { 
+              recoveryEmail: newEmail,
+              pendingEmail: newEmail
+            });
+          } else {
+            throw emailErr;
+          }
+        }
+      }
+
       if (formData.newPassword) {
         await updatePassword(auth.currentUser, formData.newPassword);
       }
 
-      // 5. Update Firestore Profile
-      const updatedProfile: UserProfile = {
+      // 4. Update Firestore Profile
+      const updatedProfile = {
         ...profile,
         name: formData.name,
-        username: formData.username.toLowerCase(),
+        username: formData.username.toLowerCase().trim(),
         recoveryEmail: formData.recoveryEmail.toLowerCase().trim()
       };
-      await updateDoc(doc(db, 'users', auth.currentUser.uid), updatedProfile as any);
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), updatedProfile);
 
       onUpdate(updatedProfile);
-      toast.success("Profile updated successfully!");
+      if (emailVerificationSent) {
+        toast.success("Profile saved. A verification link was sent to your new email. Your login email will update once verified!");
+      } else {
+        toast.success("Profile updated successfully!");
+      }
       setFormData({ ...formData, currentPassword: '', newPassword: '' });
     } catch (error: any) {
-      if (error.code === 'auth/too-many-requests' || error.message?.includes('too-many-requests')) {
-        toast.error("Profile updates are temporarily restricted due to rapid modifications. Please wait a few minutes before trying again.", { duration: 8000 });
-      } else {
-        toast.error(error.message);
-      }
+      console.error("Profile Update Error:", error);
+      toast.error(error.message);
     } finally {
       setLoading(false);
     }
@@ -114,8 +144,6 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
       toast.error("Failed to generate SOP", { id: loadingToast });
     }
   };
-
-  const isLegacyUser = auth.currentUser?.email?.endsWith('@reimbful.com');
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -169,28 +197,18 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-neutral-700 mb-1">Recovery Email Address</label>
+            <label className="block text-sm font-semibold text-neutral-700 mb-1">Recovery Email</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
               <input
                 type="email"
                 required
                 className="w-full pl-10 pr-4 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
-                placeholder="you@example.com"
+                placeholder="name@example.com"
                 value={formData.recoveryEmail}
                 onChange={(e) => setFormData({ ...formData, recoveryEmail: e.target.value })}
               />
             </div>
-            {isLegacyUser && !profile.recoveryEmail && (
-              <p className="mt-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3 animate-pulse">
-                ⚠️ **Legacy Account Action Needed:** You are logged in with a dummy username@reimbful.com email. Please specify your real email above and save changes so that Forgot Password / Password Reset functions can reach you!
-              </p>
-            )}
-            {!isLegacyUser && (
-              <p className="mt-1 text-xs text-neutral-400">
-                This email is where we send account verification and password reset links.
-              </p>
-            )}
           </div>
 
           <div className="pt-4 border-t border-neutral-100">
@@ -224,11 +242,7 @@ export default function Profile({ profile, onBack, onUpdate }: ProfileProps) {
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
                   <input
                     type={showCurrentPassword ? "text" : "password"}
-                    required={
-                      formData.newPassword !== '' || 
-                      formData.username !== profile.username || 
-                      formData.recoveryEmail.toLowerCase().trim() !== (profile.recoveryEmail || '').toLowerCase().trim()
-                    }
+                    required={formData.newPassword !== '' || formData.username !== profile.username || formData.recoveryEmail.trim().toLowerCase() !== (profile.recoveryEmail || '').trim().toLowerCase()}
                     className="w-full pl-10 pr-12 py-3 bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                     placeholder="Required for sensitive changes"
                     value={formData.currentPassword}

@@ -1,6 +1,5 @@
 {
   "name": "Reimbful",
   "description": "A production-ready travel reimbursement expense tracker for employees.",
-  "requestFramePermissions": ["camera", "microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": ["camera", "microphone"]
 }

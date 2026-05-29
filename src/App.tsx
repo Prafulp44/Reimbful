@@ -4,7 +4,7 @@ import {
   User,
   signOut
 } from 'firebase/auth';
-import { doc, getDoc, getDocFromServer } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { UserProfile } from './types';
 import Auth from './components/Auth';
@@ -57,7 +57,37 @@ function AppContent() {
         const docRef = doc(db, 'users', currentUser.uid);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setProfile(docSnap.data() as UserProfile);
+          const profileData = docSnap.data() as UserProfile;
+          setProfile(profileData);
+
+          // Auto-sync verified email modifications
+          if (currentUser.email && profileData.username) {
+            const usernameRef = doc(db, 'usernames', profileData.username.toLowerCase().trim());
+            try {
+              const usernameSnap = await getDoc(usernameRef);
+              if (usernameSnap.exists()) {
+                const usernameData = usernameSnap.data();
+                if (usernameData.authEmail !== currentUser.email) {
+                  await updateDoc(usernameRef, {
+                    authEmail: currentUser.email,
+                    recoveryEmail: currentUser.email
+                  });
+                  // Also update profile recoveryEmail to match verified auth email if needed
+                  if (profileData.recoveryEmail !== currentUser.email) {
+                    await updateDoc(docRef, {
+                      recoveryEmail: currentUser.email
+                    });
+                    setProfile({
+                      ...profileData,
+                      recoveryEmail: currentUser.email
+                    });
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("Auto-sync profile email error:", err);
+            }
+          }
         }
       } else {
         setProfile(null);
